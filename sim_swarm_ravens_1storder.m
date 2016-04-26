@@ -98,6 +98,28 @@ u(2) =  (3*pi/180) * (y.HeadingToGoal/(pi/2));
 % control - accelerate to that velocity
 %u = 0.3*(targVel - navMemory.velEstimate);
 
+
+% % % % simulate agent deciding own acceleration
+% % % 
+% % % % first get updated velocity estimate
+% % % % start with direct differencing from last time
+% % % noisyVel = (y.ownPosition - navMemory.lastPos)/0.1;
+% % % % and filter to remove some of the noise
+% % % navMemory.velEstimate = navMemory.velEstimate + ...
+% % %                  0.2*(noisyVel - navMemory.velEstimate);
+% % % % reset last position store with new measurement
+% % % navMemory.lastPos = y.ownPosition;
+% % % 
+% % % % guidance - constant speed towards target
+% % % targVel = y.targetVector*0.1/norm(y.targetVector);
+% % % 
+% % % % control - accelerate to that velocity
+% % % u = 0.3*(targVel - navMemory.velEstimate);
+
+
+
+
+
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 function xnew=simMove(x,u,navMemory,dt)
@@ -111,23 +133,16 @@ xnew = x+(k1+2*k2+2*k3+k4)*dt/6;
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 function xdot=f_continuous(x,u,navMemory)
-% simple point mass: x is [2D pos; 2D vel] and u is [2D acc]
-% so xdot is just a rearrange
-%xdot = [x(3:4); u];
+%xdot = [v*sin(theta);v*cos(theta);v*mu]
 xdot = [u(1)*sin(x(3));...
         u(1)*cos(x(3));...
         u(1)*u(2)];
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-    
-    function y = sim_GPS(x,agent,navMemory,targ)                   
-% simulate measurement for agent
-% measurement in three parts
 
+function y = sim_GPS(x,agent,navMemory,targ)
+% simulate measurement in three parts for each agent
 % first is position, plus noise
 y.Position = x(1:2,agent) + 3*randn(2,1); % New stimated position plus noise
 y.Heading = atan2(y.Position(1)-navMemory.lastPos(1),y.Position(2)-navMemory.lastPos(2));% New estimated orientation
-y.HeadingToGoal = atan2(targ(1)-navMemory.lastPos(1),targ(2)-navMemory.lastPos(2)) - y.Heading; 
-
-
-
+y.HeadingToGoal = atan2(targ(1)-navMemory.lastPos(1),targ(2)-navMemory.lastPos(2)) - y.Heading;

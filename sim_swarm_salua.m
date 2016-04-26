@@ -26,7 +26,7 @@ for UAV = 1:swarmSize
     navMemory{UAV}.lastPos = [0,0]; % last recorded position
 %     navMemory.velEstimate = [v*sin(0);v*cos(0);v*mu]; % estimate of own velocity
     navMemory{UAV}.velCommands = [u{UAV}(1),u{UAV}(2)];
-    targ(UAV,:) = randi([-900,900],1,2) %random initial target within 1 kilometre
+    targ(UAV,:) = randi([-900,900],1,2); %random initial target within 1 kilometre
     message(UAV,:) = [navMemory{UAV}.lastPos, pollution];
 end
 
