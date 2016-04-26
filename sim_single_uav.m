@@ -1,6 +1,6 @@
 function sim_single_uav
 % author: manaswi
-% description: simulation of single uav
+% description: simulation of single uav moving to a specified target
 
 %% tabula rasa
 clear all
@@ -17,7 +17,9 @@ hold on;
 
 %% define time and time step
 t = 0; % [s]
+tMax = 1800; % [s] 30 minutes
 dt = 3.6; % [s]
+nSteps = tMax / dt;
 
 %% initialize state and control input
 X = zeros(3,1); % [m; m; rad]
@@ -32,14 +34,15 @@ navMemory.velocityCommands = U;
 navMemory.state = 1;
 
 %% target
-target = [500;100];
+target = [500;0];
 
 %% main simulaiton loop
-for k = 1:1000 % 1000 steps
-    t = t+dt;
+for k = 1:nSteps
+    % update time
+    t = t + dt;
     
     % get estimate of current position from GPS
-    Y = simGPS(X,navMemory, target);
+    Y = simGPS(X, navMemory, target);
     
     % agent makes a decision based on its estimated state, y
     [U,navMemory] = simNavDecision(Y, U, navMemory);
@@ -56,8 +59,9 @@ for k = 1:1000 % 1000 steps
     % put information in the title
     title(sprintf('t=%.1f secs pos=(%.1f, %.1f)  Concentration=%.2f',t, X(1,1),X(2,1),p))
         
-    % plot robot location
-    plot(X(1,1),X(2,1),'o')
+    % plot 
+    plot(X(1,1),X(2,1),'o') % robot location
+    plot(target(1,1), target(2,1), 'sg') % target
     
     % plot the cloud contours
     cloudplot(cloud,t)
