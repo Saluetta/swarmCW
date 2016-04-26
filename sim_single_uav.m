@@ -26,12 +26,26 @@ v = 10; % [m/s]
 mu = 0.1; % [rad/s]
 U = [v; mu];
 
+%% initialize navigation memory
+navMemory.lastPosition = X(1:2,1);
+navMemory.velocityCommands = U;
+navMemory.state = 1;
+
+%% target
+target = [500;100];
+
 %% main simulaiton loop
 for k = 1:1000 % 1000 steps
     t = t+dt;
     
+    % get estimate of current position from GPS
+    Y = simGPS(X,navMemory, target);
+    
+    % agent makes a decision based on its estimated state, y
+    [U,navMemory] = simNavDecision(Y, U, navMemory);
+    
     % move uav
-    X = move(X,U,dt);
+    X = simMove(X,U,dt);
     
     % take measurement
     p = cloudsamp(cloud,X(1,1),X(2,1),t);

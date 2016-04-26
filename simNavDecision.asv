@@ -1,0 +1,7 @@
+function [ U, navMemory ] = simNavDecision( Y, U, navMemory )
+%SIMNAVDECISION Summary of this function goes here
+%   Detailed explanation goes here
+
+
+end
+
