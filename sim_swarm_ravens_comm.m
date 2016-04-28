@@ -188,7 +188,7 @@ switch navMemory.navState
         
         
         txMsg = y.Position;
-    case 2, % state = 2 - obstacle back away
+    case 2, % state = 2 - 
         
         u(1) = 20 ;
         u(2) = 0.5*pi/180;
@@ -201,7 +201,7 @@ switch navMemory.navState
             txMsg = y.Position;
          
          
-    case 3, % state = 3 - random move for a bit
+    case 3, % state = 3 -  
           
              
             if p > 0.8 && p < 1.2
