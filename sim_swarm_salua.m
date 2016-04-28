@@ -1,11 +1,9 @@
 function sim_swarm_salua
 clc, close all, clear all
-load 'cloud2.mat'
-figure
-hold on
+load 'cloud1.mat'
 
 % TODO:
-% convergence of uavss around contour
+% convergence of uavs around contour
 % set boundaries on acceleration
 % condition on "equally" spaced uavs
 % prevent collisions of uavs and keep them inside map
@@ -14,53 +12,70 @@ hold on
 t = 0;
 dt = 3.6;
 
-swarmSize = 20;
+swarmSize = 5;
 x = zeros(3,swarmSize);
-pollution = 0; % no pollution at the beginning
+% pollution = 0; % no pollution at the beginning
 % control inputs
 v = 10; mu = 0;
 
 % initialise
 for UAV = 1:swarmSize
-    u{UAV} = [v mu];
-    navMemory{UAV}.lastPos = [0,0]; % last recorded position
+    navMemory{UAV}.lastPos = [0,0];
+    navMemory{UAV}.navState = 1;
+    u{UAV} = [v mu]; % last recorded position
 %     navMemory.velEstimate = [v*sin(0);v*cos(0);v*mu]; % estimate of own velocity
     navMemory{UAV}.velCommands = [u{UAV}(1),u{UAV}(2)];
-    targ(UAV,:) = randi([-900,900],1,2); %random initial target within 1 kilometre
-    message(UAV,:) = [navMemory{UAV}.lastPos, pollution];
+    
+    targ{UAV} = [500,0];
+%     targ{UAV} = randi([-500,500],1,2); %random initial target within 1 kilometre
+%     message(UAV,:) = [navMemory{UAV}.lastPos, pollution];
 end
 
+figure
+hold on
 %% main simulation loop
 for kk=1:1800 %endurance of each UAV is 30 minutes = 1800 seconds    
     t = t + dt;
     
     for UAV=1:swarmSize 
-        if kk>10
-            targ(UAV,:) = new_targ
-        end
-        y{UAV} = sim_GPS(x,UAV,navMemory{UAV},targ(UAV,:)); % simulate own position measurement via GPS       
+%         if kk>40
+%             targ{UAV} = new_targ;
+%         end
+        y{UAV} = sim_GPS(x,UAV,navMemory{UAV},targ{UAV}); % simulate own position measurement via GPS       
         [u{UAV},navMemory{UAV}] = simNavDecision(y{UAV},u{UAV},navMemory{UAV}); % UAV makes decision on acceleration
-        pollution(UAV) = cloudsamp(cloud,x(1,UAV),x(2,UAV),t); % take measurement of pollution
-        message(UAV,:) = [x(1,UAV),x(2,UAV), pollution(UAV)];
-        x(:,UAV) = simMove(x(:,UAV),u{UAV},navMemory{UAV},dt); % execute decision
-        navMemory{UAV}.lastPos = [x(1,UAV),x(2,UAV)];
-        plot(targ(UAV,1),targ(UAV,2),'gs')
+        pollution = cloudsamp(cloud,x(1,UAV),x(2,UAV),t) % take measurement of pollution
+%         message(UAV,:) = [x(1,UAV),x(2,UAV), pollution];
+        if pollution > 0.8 && pollution < 1.2
+            targ{UAV} = y{agent}.Position;
+        end
     end
-    getting_closer = min(abs(1 - pollution));
-    close_UAV = find(getting_closer == abs(1 - pollution));
-    new_targ = [x(1,close_UAV(1)), x(2,close_UAV(1))];
+% %     while kk<100
+%     getting_closer = min(abs(1 - pollution));
+%     close_UAV = find(getting_closer == abs(1 - pollution));
+% %     end
+    
+%     new_targ = [x(1,close_UAV),x(2,close_UAV)];
+%     new_pollution = min(pollution)
   
      %  ~~~~~~~~~~~~~~~~~~~~~~~~~~~ plot ~~~~~~~~~~~~~~~~~~~~~~~~~~~
-   
-    
+
     cla
     title(sprintf('t=%.1f secs pos=(%.1f, %.1f)  Concentration=%.2f',t, x(1),x(2),pollution))
-    plot(x(1,:),x(2,:),'bo') % plot robot location
-    cloudplot(cloud,t) % plot the cloud contours
+    plot(x(1,:),x(2,:),'bo')
+    for UAV=1:swarmSize
+        plot(targ{UAV}(1),targ{UAV}(2),'gs')
+    end
+    cloudplot(cloud,t)
     cloudsamp(cloud,x(1),x(2),t);
-    pause(0.1) % pause ensures that the plots update 
-    
-end
+    pause(0.1)
+    %  ~~~~~~~~~~~~~~~~~~~~~~~~~~~ move ~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    for UAV=1:swarmSize
+        % execute decision
+        x(:,UAV) = simMove(x(:,UAV),u{UAV},navMemory{UAV},dt);
+        navMemory{UAV}.lastPos = [x(1,UAV),x(2,UAV)];
+    end 
+end 
+
 
 % For dynamics> 1.90509 kg
 % Governing equations: x_dot = v * sin(theta)
