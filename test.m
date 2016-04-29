@@ -4,7 +4,7 @@ load 'cloud1.mat'
 
 % time and time step
 t = 0;
-dt = 3.6;
+dt = 2;
 t_max = 1800;
 steps = t_max/dt;
 
@@ -14,14 +14,11 @@ v = 10;
 mu = 0.2;
 max_dist = 1000;
 max_dist_buffer =  max_dist - max_dist*0.1;
-% targ_x = linspace(0,max_dist_buffer,swarmSize);
-% targ_y = randi([-max_dist_buffer,max_dist_buffer],1,swarmSize);
+
 pollution = 0;
-turns = linspace(0,10*pi,100);
-targ_x = 15*turns.*cos(turns);
-targ_y = 15*turns.*sin(turns);
-targ_spiral = [targ_x;targ_y];
+
 for UAV = 1:swarmSize
+    targ{UAV} = [50;50];
     u{UAV} = [v;mu];
     navMemory{UAV}.lastPos = [0;0];
     navMemory{UAV}.velCommands = [u{UAV}(1),u{UAV}(2)];
@@ -31,31 +28,20 @@ end
 
 figure
 hold on
-i=1;
 %% main simulation loop
 for kk=1:steps
     
     t = t + dt;
     
-    if pollution<0.8 || pollution>1.2        
-        target = [targ_spiral(:,i)];
-        i=i+1;
-        if i == length(targ_spiral) 
-            i = 1;
-        end
-    end
-        
-        
     for UAV=1:swarmSize
-        targ{UAV}(:) = target;
         y{UAV} = sim_GPS(x,UAV,navMemory{UAV},targ{UAV});
-        [u{UAV},navMemory{UAV},targ{UAV}] = simNavDecision(y{UAV},u{UAV},navMemory{UAV},UAV,targ{UAV},pollution);
+        [u{UAV},navMemory{UAV},targ{UAV}] = simNavDecision(y{UAV},u{UAV},navMemory{UAV},targ{UAV},pollution,kk,dt);
         x(:,UAV) = simMove(x(:,UAV),u{UAV},dt);
         pollution = cloudsamp(cloud,x(1,UAV),x(2,UAV),t);
     end
     
     cla
-    %     title(sprintf('t=%.1f secs pos=(%.1f, %.1f)  Concentration=%.2f',t, x(1),x(2),pollution))
+    title(sprintf('t=%.1f secs pos=(%.1f, %.1f)  Concentration=%.2f',t, x(1),x(2),pollution))
     
     scatter(x(1,:),x(2,:),35,'r','filled')
     for UAV=1:swarmSize
@@ -76,49 +62,45 @@ y.DistanceToGoal = sqrt((y.Position(1)-targ(1))^2+(y.Position(2)-targ(2))^2);
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-function [u,navMemory,targ] = simNavDecision(y,u,navMemory,UAV,targ,pollution)
+function [u,navMemory,targ] = simNavDecision(y,u,navMemory,targ,pollution,iteration,dt)
 
 navMemory.lastPos = y.Position;
 navMemory.velCommands = [u(1),u(2)];
 
 switch navMemory.navState
     
-    case 1, % state = 1 - drive to target
-        
-        u(1) = 10 * ((pi/2 - abs(y.HeadingToGoal))/(pi/2));
-        u(2) = (3*pi/180) * (y.HeadingToGoal/(pi/2));
-        
-%         if y.DistanceToGoal < 40;
-%             navMemory.navState = 3;
-%         end
-        
-    case 2, % state = 2 - obstacle back away
-        u(1) = 20 ;
-        u(2) = 0.5*pi/180; 
-       
-    case 3, % state = 3 - random move for a bit
-%         if UAV == 1
-%             u = [10;0.005];
-%         elseif UAV == 2
-%             u = [10;0.007];
-%         elseif UAV == 3
-%             u = [10;0.01];
-%         elseif UAV == 4
-%             u = [10;0.05];
-%         elseif UAV == 5
-%             u = [10;0.1];
-%         end
-        u(1) = 20 ;
-        u(2) = 0.5*pi/180;
+       case 1, % state = 3 - spiral move exploration
+
+        u(1) = 10 ;
+        u(2) = (1/300)*exp(-0.007*(iteration-1)*dt)/pi*180;
         
         if pollution > 0.8 && pollution < 1.2
-            navMemory.navState = 4;
+            navMemory.navState = 3;
             targ = y.Position;
         end
         
-    case 4, % state = 4 - got there
+    case 2, % state = tracking target
+                u(1) = 20 ;
+        u(2) = 0.5*pi/180;
+        
+        
+    case 3, % state = 2 - obstacle avoidance
+ 
+        u(1) = 10 * ((pi/2 - abs(y.HeadingToGoal))/(pi/2));
+        u(2) = (3*pi/180) * (y.HeadingToGoal/(pi/2));
+        
+        if y.DistanceToGoal < 20;
+            navMemory.navState = 3;
+        end
+
+        
+    case 4, % state = 4 - target reached
         u(1) = 10;
         u(2) = 6*pi/180;
+        
+        if pollution < 0.8 && pollution > 1.2
+            navMemory.navState = 3;
+        end
 end
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
