@@ -34,11 +34,14 @@ for kk=1:steps
     t = t + dt;
     
     for UAV=1:swarmSize
-        y{UAV} = sim_GPS(x,UAV,navMemory{UAV},targ{UAV});
+        y{UAV} = sim_GPS(x,UAV,navMemory{UAV},targ{UAV}, message_all);
         [u{UAV},navMemory{UAV},targ{UAV}] = simNavDecision(y{UAV},u{UAV},navMemory{UAV},targ{UAV},pollution,kk,dt);
         x(:,UAV) = simMove(x(:,UAV),u{UAV},dt);
         pollution = cloudsamp(cloud,x(1,UAV),x(2,UAV),t);
+        message{UAV} = [x(:,UAV);pollution];
+        message_all =  [message_all; message{UAV}]
     end
+    
     
     cla
     title(sprintf('t=%.1f secs pos=(%.1f, %.1f)  Concentration=%.2f',t, x(1),x(2),pollution))
@@ -69,7 +72,7 @@ navMemory.velCommands = [u(1),u(2)];
 
 switch navMemory.navState
     
-       case 1, % state = 3 - spiral move exploration
+       case 1, % spiral move exploration
 
         u(1) = 10 ;
         u(2) = (1/300)*exp(-0.007*(iteration-1)*dt)/pi*180;
@@ -79,21 +82,21 @@ switch navMemory.navState
             targ = y.Position;
         end
         
-    case 2, % state = tracking target
+    case 2, %  tracking target
                 u(1) = 20 ;
         u(2) = 0.5*pi/180;
         
         
-    case 3, % state = 2 - obstacle avoidance
- 
+    case 3, % state = 3 
+        
+        if pollution > 0.8 && pollution < 1.2
+            targ = y.Position;
+        end
+        
         u(1) = 10 * ((pi/2 - abs(y.HeadingToGoal))/(pi/2));
         u(2) = (3*pi/180) * (y.HeadingToGoal/(pi/2));
         
-        if y.DistanceToGoal < 20;
-            navMemory.navState = 3;
-        end
-
-        
+       
     case 4, % state = 4 - target reached
         u(1) = 10;
         u(2) = 6*pi/180;
