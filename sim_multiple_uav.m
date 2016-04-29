@@ -29,7 +29,7 @@ nRavens = 5; % number of UAVs
 X = zeros(3,nRavens); % [m; m; rad]
 
 v = 10*ones(1,nRavens); % [m/s]
-mu = 0.1*ones(1,nRavens); % [rad/s]
+mu = 0.1*ones(1,nRavens); % [rad/m]
 U = [v; mu];
 
 %% initialize agent memory
@@ -37,10 +37,11 @@ for i = 1:1:nRavens
     memory(i).lastPosition = X(1:2,1);
     % memory.velocityCommands = U;
     memory(i).stateFSM = 1;
+    target(:,i) = [200*cos(i);500*sin(i)];
 end
 
 %% target
-target = [500;0];
+% target = repmat([500;0],1,nRavens);
 
 %% main simulaiton loop
 for k = 1:nSteps
@@ -50,7 +51,7 @@ for k = 1:nSteps
     
     for i = 1:1:nRavens
         % get estimate of current position from GPS
-        Y(i) = simEstimateState(X(:,i), memory(i), target);
+        Y(i) = simEstimateState(X(:,i), memory(i), target(:,i));
 
         % agent makes a decision based on its estimated state, y
         [U(:,i),memory(i)] = simDecision(Y(:,i), U(:,i), memory(i));
@@ -69,7 +70,7 @@ for k = 1:nSteps
 
         % drawing
         plot(X(1,i),X(2,i),'o') % robot location
-        
+        plot(target(1,i), target(2,i), 'sg') % target
     end
     
     
@@ -77,7 +78,7 @@ for k = 1:nSteps
 %     
 %     title(sprintf('t=%.1f secs pos=(%.1f, %.1f)  Concentration=%.2f',t, X(1,1),X(2,1),p)) 
     
-    plot(target(1,1), target(2,1), 'sg') % target
+    
     cloudplot(cloud,t)
     
     pause(0.1)

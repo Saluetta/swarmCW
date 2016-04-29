@@ -1,4 +1,4 @@
-function sim_single_uav
+function sim_single_test
 % author: manaswi
 % description: simulation of single uav moving to a specified target and
 % circling nearby
@@ -32,10 +32,10 @@ U = [v; mu];
 %% initialize agent memory
 memory.lastPosition = X(1:2,1);
 % memory.velocityCommands = U;
-memory.stateFSM = 1;
+memory.stateFSM = 2;
 
 %% target
-target = [500;0];
+target = [10;10];
 
 %% main simulaiton loop
 for k = 1:nSteps
@@ -50,6 +50,7 @@ for k = 1:nSteps
     
     % move uav
     X = simMove(X,U,dt);
+    store(:,k) = X(:,1);
     
     % take measurement
     p = cloudsamp(cloud,X(1,1),X(2,1),t);
@@ -65,7 +66,7 @@ for k = 1:nSteps
     title(sprintf('t=%.1f secs pos=(%.1f, %.1f)  Concentration=%.2f',t, X(1,1),X(2,1),p)) 
     plot(X(1,1),X(2,1),'o') % robot location
     plot(target(1,1), target(2,1), 'sg') % target
-    
+    plot(store(1,:), store(2,:), 'k')
     cloudplot(cloud,t)
     
     pause(0.1)
@@ -82,7 +83,7 @@ function [ Y ] = simEstimateState( X, memory, target )
 %   for heading to target, first find target orientation and then subtract
 %   agent's heading
 
-Y.position = X(1:2,1) + 3*randn(2,1);
+Y.position = X(1:2,1) + 0*randn(2,1);
 
 Y.heading = atan2(Y.position(1,1) - memory.lastPosition(1,1),...
                   Y.position(2,1) - memory.lastPosition(2,1));
@@ -90,6 +91,9 @@ Y.heading = atan2(Y.position(1,1) - memory.lastPosition(1,1),...
 Y.headingToTarget = atan2(target(1,1) - memory.lastPosition(1,1),...
                           target(2,1) - memory.lastPosition(2,1))...
                     - Y.heading;
+                
+Y.monkey = atan( memory.lastPosition(1,1)/memory.lastPosition(2,1) );
+Y.donkey = X(3,1);
 
 % [Note: heading is measued from North in clockwise direction]
 end
@@ -112,7 +116,7 @@ switch memory.stateFSM
     
     case 2, % If reached target, circle nearby
         v_new = 20;
-        mu_new = 2*pi/180;
+        mu_new = (2 + (Y.heading)^2 ) / (0.5*(1 + (Y.heading)^2)^1.5)
 end
 
 % apply limits on v
