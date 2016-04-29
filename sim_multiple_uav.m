@@ -1,6 +1,6 @@
-function sim_single_uav
+function sim_multiple_uav
 % author: manaswi
-% description: simulation of single uav moving to a specified target and
+% description: simulation of multiple uavs moving to specified targets and
 % circling nearby
 
 %% tabula rasa
@@ -20,19 +20,24 @@ hold on;
 t = 0; % [s]
 tMax = 1800; % [s] 30 minutes
 dt = 2; % [s]
-nSteps = tMax / dt;
+nSteps = tMax / dt; % simulation steps
 
-%% initialize state and control input
-X = zeros(3,1); % [m; m; rad]
+%% initialize swarm parameters
+nRavens = 5; % number of UAVs
 
-v = 10; % [m/s]
-mu = 0.1; % [rad/s]
+%% initialize true state and control input
+X = zeros(3,nRavens); % [m; m; rad]
+
+v = 10*ones(1,nRavens); % [m/s]
+mu = 0.1*ones(1,nRavens); % [rad/s]
 U = [v; mu];
 
 %% initialize agent memory
-memory.lastPosition = X(1:2,1);
-% memory.velocityCommands = U;
-memory.stateFSM = 1;
+for i = 1:1:nRavens
+    memory(i).lastPosition = X(1:2,1);
+    % memory.velocityCommands = U;
+    memory(i).stateFSM = 1;
+end
 
 %% target
 target = [500;0];
@@ -41,31 +46,38 @@ target = [500;0];
 for k = 1:nSteps
     % update time
     t = t + dt;
+    cla
     
-    % get estimate of current position from GPS
-    Y = simEstimateState(X, memory, target);
-    
-    % agent makes a decision based on its estimated state, y
-    [U,memory] = simDecision(Y, U, memory);
-    
-    % move uav
-    X = simMove(X,U,dt);
-    
-    % take measurement
-    p = cloudsamp(cloud,X(1,1),X(2,1),t);
-    
-    % adjust target based on measurement
-    if p > 0.85 && p < 1.15
-        target = X(1:2,1);
-        memory.stateFSM = 2;
+    for i = 1:1:nRavens
+        % get estimate of current position from GPS
+        Y(i) = simEstimateState(X(:,i), memory(i), target);
+
+        % agent makes a decision based on its estimated state, y
+        [U(:,i),memory(i)] = simDecision(Y(:,i), U(:,i), memory(i));
+
+        % move uav
+        X(:,i) = simMove(X(:,i),U(:,i),dt);
+
+        % take measurement
+        p(1,i) = cloudsamp(cloud,X(1,i),X(2,i),t);
+
+        % adjust target based on measurement
+        if p(1,i) > 0.85 && p(1,i) < 1.15
+            target = X(1:2,i);
+            memory(i).stateFSM = 2;
+        end
+
+        % drawing
+        plot(X(1,i),X(2,i),'o') % robot location
+        
     end
     
-    % drawing
-    cla
-    title(sprintf('t=%.1f secs pos=(%.1f, %.1f)  Concentration=%.2f',t, X(1,1),X(2,1),p)) 
-    plot(X(1,1),X(2,1),'o') % robot location
-    plot(target(1,1), target(2,1), 'sg') % target
     
+    % drawing
+%     
+%     title(sprintf('t=%.1f secs pos=(%.1f, %.1f)  Concentration=%.2f',t, X(1,1),X(2,1),p)) 
+    
+    plot(target(1,1), target(2,1), 'sg') % target
     cloudplot(cloud,t)
     
     pause(0.1)
