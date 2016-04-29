@@ -18,7 +18,7 @@ hold on;
 %% define time and time step
 t = 0; % [s]
 tMax = 1800; % [s] 30 minutes
-dt = 3; % [s]
+dt = 2; % [s]
 nSteps = tMax / dt;
 
 %% initialize state and control input
@@ -28,15 +28,13 @@ v = 10; % [m/s]
 mu = 0.1; % [rad/s]
 U = [v; mu];
 
-%% initialize navigation memory
-navMemory.lastPosition = X(1:2,1);
-navMemory.velocityCommands = U;
-navMemory.state = 1;
+%% initialize agent memory
+memory.lastPosition = X(1:2,1);
+% memory.velocityCommands = U;
+memory.stateFSM = 1;
 
 %% target
 target = [500;0];
-
-% store = zeros(2,nSteps);
 
 %% main simulaiton loop
 for k = 1:nSteps
@@ -44,10 +42,10 @@ for k = 1:nSteps
     t = t + dt;
     
     % get estimate of current position from GPS
-    Y = simGPS(X, navMemory, target);
+    Y = simEstimateState(X, memory, target);
     
     % agent makes a decision based on its estimated state, y
-    [U,navMemory] = simNavDecision(Y, U, navMemory);
+    [U,memory] = simDecision(Y, U, memory);
     
     % move uav
     X = simMove(X,U,dt);
@@ -58,6 +56,7 @@ for k = 1:nSteps
     % adjust target based on measurement
     if p > 0.85 && p < 1.15
         target = X(1:2,1);
+        memory.stateFSM = 2;
     end
     
     % drawing
@@ -75,9 +74,68 @@ end % end of main
 
 %% Helper Functions -------------------------------------------------------
 % -------------------------------------------------------------------------
+function [ Y ] = simEstimateState( X, memory, target )
+%SIMESTIMATESTATE simulates estimateion of state based on GPS
+%   For the position, adds a gaussian noise of 3m
+%   for the heading, uses previous known position and computes arc tangent
+%   for heading to target, first find target orientation and then subtract
+%   agent's heading
+
+Y.position = X(1:2,1) + 3*randn(2,1);
+
+Y.heading = atan2(Y.position(1,1) - memory.lastPosition(1,1),...
+                  Y.position(2,1) - memory.lastPosition(2,1));
+              
+Y.headingToTarget = atan2(target(1,1) - memory.lastPosition(1,1),...
+                          target(2,1) - memory.lastPosition(2,1))...
+                    - Y.heading;
+
+% [Note: heading is measued from North in clockwise direction]
+end
+
+% -------------------------------------------------------------------------
+function [ U_new, memory ] = simDecision( Y, U, memory )
+%SIMDECISION returns new velocity commands based on current estimated
+%state and internal memory
+
+% updae agent's memory
+memory.lastPosition = Y.position;
+% memory.velocityCommands = U;
+
+% a finite state machine to decide what control inputs to be given
+switch memory.stateFSM
+    case 1, % Move to specified target
+        % update velocity command based on current heading to target
+        v_new = 10 * ((pi/2 - abs(Y.headingToTarget))/(pi/2));
+        mu_new =  (3*pi/180) * (Y.headingToTarget/(pi/2));
+    
+    case 2, % If reached target, circle nearby
+        v_new = 20;
+        mu_new = 2*pi/180;
+end
+
+% apply limits on v
+if v_new > 20
+    v_new = 20;
+end
+
+if v_new < 10
+    v_new = 10;
+end
+
+% apply limits on mu
+if mu_new > 6*pi/180
+    mu_new = 6*pi/180;
+end
+
+U_new = [v_new; mu_new];
+
+end
+
+% -------------------------------------------------------------------------
 function [ X_next ] = simMove( X,U,dt )
 %simMove given current state, control input and time step, this function
-%returns the state at thenext time step
+%returns the state at the next instant of time
 %   Implements a simple 4th order Runge Kutta prediction
 
 k1 = continuousDynamics(X,U);
@@ -102,56 +160,5 @@ X_dot = zeros(3,1);
 X_dot(1,1) = U(1,1) * sin( X(3,1) );
 X_dot(2,1) = U(1,1) * cos( X(3,1) );
 X_dot(3,1) = U(1,1) * U(2,1);
-
-end
-
-% -------------------------------------------------------------------------
-function [ Y ] = simGPS( X, navMemory, target )
-%SIMGPS simulates GPS measurements
-%   For the position, adds a gaussian noise of 3m
-%   for the heading, uses previous known position and computes arc tangent
-%   for heading to target, first find target orientation and then subtract
-%   agent's heading
-
-Y.position = X(1:2,1) + 3*randn(2,1);
-
-Y.heading = atan2(Y.position(1,1) - navMemory.lastPosition(1,1),...
-                  Y.position(2,1) - navMemory.lastPosition(2,1));
-              
-Y.headingToTarget = atan2(target(1,1) - navMemory.lastPosition(1,1),...
-                          target(2,1) - navMemory.lastPosition(2,1))...
-                    - Y.heading;
-
-% [Note: heading is measued from North in clockwise direction]
-end
-
-% -------------------------------------------------------------------------
-function [ U_new, navMemory ] = simNavDecision( Y, U, navMemory )
-%SIMNAVDECISION returns new velocity commands based on current estimated
-%state and internal memory
-
-% updae agent's memory
-navMemory.lastPosition = Y.position;
-navMemory.velocityCommands = U;
-
-% update velocity command based on current heading to target
-v_new = 10 * ((pi/2 - abs(Y.headingToTarget))/(pi/2));
-mu_new =  (3*pi/180) * (Y.headingToTarget/(pi/2));
-
-% apply limits on v
-if v_new > 20
-    v_new = 20;
-end
-
-if v_new < 10
-    v_new = 10;
-end
-
-% apply limits on mu
-if mu_new > 6*pi/180
-    mu_new = 6*pi/180;
-end
-
-U_new = [v_new; mu_new];
 
 end
