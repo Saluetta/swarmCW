@@ -13,7 +13,7 @@ load 'cloud2.mat'
 t = 0;
 dt = 2;%%3.6
 
-Num_agents = 6;
+Num_agents = 7;
 Dist_max = 1000;
 x = zeros(3,Num_agents);
 
@@ -203,7 +203,7 @@ switch navMemory.navState
     case 2, % state = 2 - hold on 
         
         u(1) = 20 ;
-        u(2) = 0.15*pi/180;
+        u(2) = 0.5*pi/180;
         
          
              
@@ -222,8 +222,8 @@ switch navMemory.navState
             end
          
            
-          u(1) = 10 * ((pi/2 - abs(y.HeadingToGoal))/(pi/2));
-        u(2) =  (3*pi/180) * (y.HeadingToGoal/(pi/2));
+        u(1) = 10;
+        u(2) = 6*pi/180;%-10*u(2);
         txMsg = y.Position;
   
     case 4, % state = 4 - got there 
@@ -243,7 +243,7 @@ function target=spreading(Num_agents,Dist_max)
 %
 theta = 2*pi/(Num_agents -1);
 for i=1:Num_agents -1 
-target{i}= 3/4 * Dist_max * [sin(i*theta);cos(i*theta)];
+target{i}= 1/2 * Dist_max * [sin(i*theta);cos(i*theta)];
 end
 
 target{Num_agents} = [0,0]; 
@@ -283,7 +283,7 @@ y.DistanceToGoal = sqrt((y.Position(1)-targ(1))^2+(y.Position(2)-targ(2))^2);
 y.Heading = atan2(y.Position(1)-navMemory.lastPos(1),y.Position(2)-navMemory.lastPos(2));% New stimated orientation
 y.HeadingToGoal = atan2(targ(1)-navMemory.lastPos(1),targ(2)-navMemory.lastPos(2)) - y.Heading; 
 
-    
+if y.Heading > 
 
 
 function channel = initChannel()
