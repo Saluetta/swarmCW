@@ -35,10 +35,12 @@ U = [v; mu];
 %% initialize agent memory
 for i = 1:1:nRavens
     memory(i).lastPosition = X(1:2,1);
-    % memory.velocityCommands = U;
     memory(i).stateFSM = 1;
     target(:,i) = [500*cos(i*2*pi/nRavens);500*sin(i*2*pi/nRavens)];
 end
+
+%% initialize communications
+messagePool = initCommunication();
 
 %% target
 % target = repmat([500;0],1,nRavens);
@@ -50,8 +52,11 @@ for k = 1:nSteps
     cla
     
     for i = 1:1:nRavens
+        % receive broadcasted messages
+        receivedMessages = receiveBroadcast(messagePool);
+        
         % get estimate of current position from GPS
-        Y(i) = simEstimateState(X(:,i), memory(i), target(:,i));
+        Y(i) = simEstimateState(X(:,i), memory(i), target(:,i),receivedMessages, i);
 
         % agent makes a decision based on its estimated state, y
         [U(:,i),memory(i)] = simDecision(Y(:,i), U(:,i), memory(i));
@@ -62,22 +67,17 @@ for k = 1:nSteps
         % take measurement
         p(1,i) = cloudsamp(cloud,X(1,i),X(2,i),t);
 
-        % adjust target based on measurement
-        if p(1,i) > 0.85 && p(1,i) < 1.15
-            target = X(1:2,i);
-            memory(i).stateFSM = 2;
-        end
+        % add message to broadcast queue
+        messageToSend = [X(1,i); X(2,i); p(1,i)];
+        messagePool = broadcastMessage(messageToSend, messagePool);
 
         % drawing
         plot(X(1,i),X(2,i),'o') % robot location
         plot(target(1,i), target(2,i), 'sg') % target
-    end
+    end  
     
-    
-    % drawing
-%     
-%     title(sprintf('t=%.1f secs pos=(%.1f, %.1f)  Concentration=%.2f',t, X(1,1),X(2,1),p)) 
-    
+    % simulate broadcast of messages
+    messagePool = simulateBroadcast(messagePool);
     
     cloudplot(cloud,t)
     
@@ -88,12 +88,13 @@ end % end of main
 
 %% Helper Functions -------------------------------------------------------
 % -------------------------------------------------------------------------
-function [ Y ] = simEstimateState( X, memory, target )
+function [ Y ] = simEstimateState( X, memory, target, messages, agentNo)
 %SIMESTIMATESTATE simulates estimateion of state based on GPS
 %   For the position, adds a gaussian noise of 3m
 %   for the heading, uses previous known position and computes arc tangent
 %   for heading to target, first find target orientation and then subtract
 %   agent's heading
+% [Note: heading is measued from North in clockwise direction]
 
 Y.position = X(1:2,1) + 3*randn(2,1);
 
@@ -103,8 +104,29 @@ Y.heading = atan2(Y.position(1,1) - memory.lastPosition(1,1),...
 Y.headingToTarget = atan2(target(1,1) - memory.lastPosition(1,1),...
                           target(2,1) - memory.lastPosition(2,1))...
                     - Y.heading;
+                
+% calculate distance to nearest neighbouring agent
+Y.nearestAgentVector = [inf;inf]; % vector from this agent to nearest one
+nearestAgent = [inf;inf]; % estimated position of the nearest agent
+nearestDist = inf;
+% loop through all agents
+for k=1:size(messages,2)
+    if k ~= agentNo % dont check this agent with itself
+        distance = norm(messages(1:2,k) - Y.position(1:2));
+        if (distance < nearestDist)
+            Y.nearestAgentVector = messages(1:2,k) - Y.position(1:2);
+            nearestAgent = messages(1:2,k);
+            nearestDist = distance;
+        end
+    end
+end
 
-% [Note: heading is measued from North in clockwise direction]
+Y.headingToNearestAgent = atan2(nearestAgent(1) - Y.position(1),...
+                                nearestAgent(2) - Y.position(2))...
+                          - Y.heading;
+
+
+
 end
 
 % -------------------------------------------------------------------------
@@ -114,7 +136,6 @@ function [ U_new, memory ] = simDecision( Y, U, memory )
 
 % updae agent's memory
 memory.lastPosition = Y.position;
-% memory.velocityCommands = U;
 
 % a finite state machine to decide what control inputs to be given
 switch memory.stateFSM
@@ -128,9 +149,7 @@ switch memory.stateFSM
         mu_new = 1.5*pi/180;
 end
 
-[v_new,mu_new] = applyConstraints(v_new,mu_new);
-
-
+[v_new, mu_new] = applyConstraints(v_new, mu_new);
 U_new = [v_new; mu_new];
 
 end
@@ -157,7 +176,6 @@ end
 % end
 
 end
-
 
 % -------------------------------------------------------------------------
 function [ X_next ] = simMove( X,U,dt )
@@ -191,31 +209,29 @@ X_dot(3,1) = U(1,1) * U(2,1);
 
 end
 
-
-
 % -------------------------------------------------------------------------
 % Communication Functions
 
-function channel = initChannel()
-% initialize comms channel model
-    channel.curMsgs = {};
-    channel.newMsgs = {};
+function messagePool = initCommunication()
+% initialize communication
+% curretnMessages are read by agents
+% new messages are collected in simulation loop and replace current ones
+    messagePool.currentMessages = [];
+    messagePool.newMessages = [];
 end
 
-function [rxMsgs,channel] = simReceive(aa,channel)
-% simulate receiving messages
-% simple broadcast model - just get everything
-    rxMsgs = channel.curMsgs;
+function messages = receiveBroadcast(messagePool)
+% receive all messages broadcast
+    messages = messagePool.currentMessages;
 end
 
-function channel = simTransmit(txMsgs,aa,channel)
-% simulate transmitting a message
-% store it for next step
-    channel.newMsgs = [channel.newMsgs txMsgs];
+function messagePool = broadcastMessage(message, messagePool)
+% send message - adds message to the set of new messages
+    messagePool.newMessages = [messagePool.newMessages message];
 end
 
-function channel = simChannel(channel,x)
-% simple - everyone gets everything
-    channel.curMsgs = channel.newMsgs;
-    channel.newMsgs = {};
+function messagePool = simulateBroadcast(messagePool)
+% replace set of current messages with new set
+    messagePool.currentMessages = messagePool.newMessages;
+    messagePool.newMessages = [];
 end
