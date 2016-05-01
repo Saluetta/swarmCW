@@ -50,7 +50,7 @@ for k = 1:nSteps
     
     % move uav
     X = simMove(X,U,dt);
-    store(:,k) = X(:,1);
+    store(:,k) = [X(:,1);k;Y.heading;Y.donkey];
     
     % take measurement
     p = cloudsamp(cloud,X(1,1),X(2,1),t);
@@ -67,6 +67,9 @@ for k = 1:nSteps
     plot(X(1,1),X(2,1),'o') % robot location
     plot(target(1,1), target(2,1), 'sg') % target
     plot(store(1,:), store(2,:), 'k')
+%     plot(store(4,:), pi + store(5,:), 'b')
+%     plot(store(4,:), store(6,:), 'm')
+%     xlim([0,nSteps])
     cloudplot(cloud,t)
     
     pause(0.1)
@@ -83,7 +86,7 @@ function [ Y ] = simEstimateState( X, memory, target )
 %   for heading to target, first find target orientation and then subtract
 %   agent's heading
 
-Y.position = X(1:2,1) + 0*randn(2,1);
+Y.position = X(1:2,1) + 3*randn(2,1);
 
 Y.heading = atan2(Y.position(1,1) - memory.lastPosition(1,1),...
                   Y.position(2,1) - memory.lastPosition(2,1));
@@ -92,8 +95,8 @@ Y.headingToTarget = atan2(target(1,1) - memory.lastPosition(1,1),...
                           target(2,1) - memory.lastPosition(2,1))...
                     - Y.heading;
                 
-Y.monkey = atan( memory.lastPosition(1,1)/memory.lastPosition(2,1) );
-Y.donkey = X(3,1);
+Y.monkey = atan2( Y.position(2,1),Y.position(1,1) );
+Y.donkey = atan((Y.position(1,1) - memory.lastPosition(1,1))/(Y.position(2,1) - memory.lastPosition(2,1)));
 
 % [Note: heading is measued from North in clockwise direction]
 end
@@ -115,8 +118,8 @@ switch memory.stateFSM
         mu_new =  (3*pi/180) * (Y.headingToTarget/(pi/2));
     
     case 2, % If reached target, circle nearby
-        v_new = 20;
-        mu_new = (2 + (Y.heading)^2 ) / (0.5*(1 + (Y.heading)^2)^1.5)
+        v_new = 10;
+        mu_new = (2 + (0 + Y.monkey)^2 ) / (0.5*(1 + (0 + Y.monkey)^2)^1.5);
 end
 
 % apply limits on v
@@ -131,6 +134,11 @@ end
 % apply limits on mu
 if mu_new > 6*pi/180
     mu_new = 6*pi/180;
+end
+
+% TODO: check this
+if mu_new < 0
+    mu_new = 0;
 end
 
 U_new = [v_new; mu_new];

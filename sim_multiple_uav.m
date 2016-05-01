@@ -37,7 +37,7 @@ for i = 1:1:nRavens
     memory(i).lastPosition = X(1:2,1);
     % memory.velocityCommands = U;
     memory(i).stateFSM = 1;
-    target(:,i) = [200*cos(i);500*sin(i)];
+    target(:,i) = [500*cos(i*2*pi/nRavens);500*sin(i*2*pi/nRavens)];
 end
 
 %% target
@@ -125,8 +125,17 @@ switch memory.stateFSM
     
     case 2, % If reached target, circle nearby
         v_new = 20;
-        mu_new = 2*pi/180;
+        mu_new = 1.5*pi/180;
 end
+
+[v_new,mu_new] = applyConstraints(v_new,mu_new);
+
+
+U_new = [v_new; mu_new];
+
+end
+
+function [v_new, mu_new] = applyConstraints(v_new,mu_new)
 
 % apply limits on v
 if v_new > 20
@@ -142,9 +151,13 @@ if mu_new > 6*pi/180
     mu_new = 6*pi/180;
 end
 
-U_new = [v_new; mu_new];
+% TODO: check this
+% if mu_new < 0
+%     mu_new = 0;
+% end
 
 end
+
 
 % -------------------------------------------------------------------------
 function [ X_next ] = simMove( X,U,dt )
@@ -158,6 +171,7 @@ k3 = continuousDynamics(X+k2*dt/2,U);
 k4 = continuousDynamics(X+k3*dt,U);
 
 X_next = X + (k1 + 2*k2 + 2*k3 + k4)*dt/6;
+X_next(3,1) = mod(X_next(3,1), 2*pi);
 
 end
 
@@ -175,4 +189,33 @@ X_dot(1,1) = U(1,1) * sin( X(3,1) );
 X_dot(2,1) = U(1,1) * cos( X(3,1) );
 X_dot(3,1) = U(1,1) * U(2,1);
 
+end
+
+
+
+% -------------------------------------------------------------------------
+% Communication Functions
+
+function channel = initChannel()
+% initialize comms channel model
+    channel.curMsgs = {};
+    channel.newMsgs = {};
+end
+
+function [rxMsgs,channel] = simReceive(aa,channel)
+% simulate receiving messages
+% simple broadcast model - just get everything
+    rxMsgs = channel.curMsgs;
+end
+
+function channel = simTransmit(txMsgs,aa,channel)
+% simulate transmitting a message
+% store it for next step
+    channel.newMsgs = [channel.newMsgs txMsgs];
+end
+
+function channel = simChannel(channel,x)
+% simple - everyone gets everything
+    channel.curMsgs = channel.newMsgs;
+    channel.newMsgs = {};
 end

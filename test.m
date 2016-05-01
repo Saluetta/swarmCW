@@ -17,7 +17,7 @@ for i = 1:1000
     end
     
     if mu > 6*pi/180
-        mu = 6*pi/180
+        mu = 6*pi/180;
     end
     
     if v > 20
@@ -32,6 +32,7 @@ for i = 1:1000
 end
 
 plot(store(1,:), store(2,:), 'b')
+plot(mod(store(3,:),2*pi), 'b')
 hold on
 plot(store(1,end), store(2,end), 'r*')
 
