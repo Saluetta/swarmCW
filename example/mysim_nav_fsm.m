@@ -153,7 +153,7 @@ k2 = f_continuous(x+k1*dt/2,u);
 k3 = f_continuous(x+k2*dt/2,u);
 k4 = f_continuous(x+k3*dt,u);
 xnew = x+(k1+2*k2+2*k3+k4)*dt/6;
-    
+
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
