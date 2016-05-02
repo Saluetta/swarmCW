@@ -1,22 +1,17 @@
 function sim_swarm_ravens_comm
 %
-% simulation example for use of cloud dispersion model
-%
-% 
-%
 % load cloud data
 % choose a scenario
 % load 'cloud1.mat'
-load 'cloud1.mat'
+load 'cloud2.mat'
 
 % time and time step
 t = 0;
 dt = 2;%%3.6
 
-Num_agents = 6;
+Num_agents = 7;
 Dist_max = 1000;
-x = zeros(3,Num_agents);
-
+x = zeros(3,Num_agents); % Initial State {only position}
 
 v = 10;
 mu = 0;
@@ -27,126 +22,71 @@ channel = initChannel();
 for agent = 1:Num_agents,
     % last recorded position
     navMemory{agent}.lastPos = [0;0];
-    % estimate of own velocity
-   % navMemory{agent}.velEstimate = [0;0];
-    % initial operating state
-    navMemory{agent}.navState = 1;
-    navMemory{agent}.avoidanceTime = randi([5*dt 10*dt],1);
+    navMemory{agent}.navState = 1;% initial decision maker memory
+    navMemory{agent}.avoidanceTime = randi([5*dt 10*dt],1); %Each UAV has its own evation time between [2*dt,10dt]
     navMemory{agent}.avoidanceTimeCounter = 0;
     navMemory{agent}.visitCloud = 0;
-    
-    u{agent} = [v;mu];
-    navMemory{agent}.velCommands = [u{agent}(1),u{agent}(2)];
+    u{agent} = [v;mu]; % Initial input
     navMemory{agent}.cloudLocation = [];
     
-    % 1 = spread (start)
-    % 2 = Look for clouds
-    % 3 = Track cloud
-    % 5 = Go home
-  
 end
 
 
 [border_targ,x] = spreading(Num_agents,Dist_max,x);
 curr_targ = border_targ; 
 
-% initial dynamic state [pos;vel] in 2D
-%x = [0;0;0;zeros(3,1)];
-
 % v units -> m/s || mu units -> rad/s
-
-% initial decision maker memory
-% last recorded position
-
-%%navMemory.lastPos = [0;0]; 
-
-% estimate of own velocity
-%navMemory.velEstimate = [v*sin(0);v*cos(0);v*mu];
-
-%%navMemory.velCommands = [u(1),u(2)];
-
-% time step
-%dt = 0.1;
-
-% target position
-
 
 % open new figure window
 figure
 hold on % so each plot doesn't wipte the predecessor
 
 % main simulation loop
-for kk=1:1000,
+for kk=1:1000
     
     % time
     t = t + dt;
-    
-    
+
     for agent=1:Num_agents
              
         % simulate own position measurement
-        % y = sim_GPS(x,navMemory,targ);
         y{agent} = sim_GPS(x,agent,navMemory{agent},curr_targ{agent});
         
         % take measurement
-    
         p = cloudsamp(cloud,x(1,agent),x(2,agent),t);
+        
         % simulate received message
         [rxMsgs{agent},channel] = simReceive(agent,channel);
+        
         % agent makes decision on acceleration
         [u{agent},navMemory{agent},txMsgs{agent},curr_targ{agent}] = simNavDecision(y{agent},u{agent},navMemory{agent},rxMsgs{agent},curr_targ{agent},border_targ{agent},p,kk); 
         
+        %Debugging  Record positions
         xs{agent}(1:2,kk) = [x(1,agent),x(2,agent)];
         % simulate transmission
         channel = simTransmit(txMsgs{agent},agent,channel);
-        
     end
-    %channel.newMsgs
-    % agent makes decision on acceleration
-    %u = [1.2;1.2;6*pi/180];%simNavDecision(y,kk,navMemory);
-    
-    %%[u,navMemory] = simNavDecision(y,u,navMemory);
-    % cheat - robot goes round in circles
-    % x = [500*cos(0.01*t); 500*sin(0.01*t); 0.2 ] ;
-    % execute decision
     
     channel = simChannel(channel,x);
-    
-    %%x = simMove(x,u,navMemory,dt);
-    
     
     % clear the axes for fresh plotting
     cla
     
     % put information in the title
     title(sprintf('t=%.1f secs pos=(%.1f, %.1f)  Concentration=%.2f',t, x(1),x(2),p))
-    
-   
-    
+     
     for agent=1:Num_agents
-        
          if navMemory{agent}.navState == 1
         clr = 'bo';
          elseif navMemory{agent}.navState == 2
         clr = 'go';
          else
         clr = 'ro';
-        end
-    % plot robot location
-        % store
-        
-        
+         end
         plot(x(1,agent),x(2,agent),clr)
-        
         plot(curr_targ{agent}(1),curr_targ{agent}(2),'gs')   
-        
         %plot( xs{agent}(1,:),xs{agent}(2,:),'c-')
     end
-    
-    
-    %%plot(x(1,:),x(2),'o')
-    %%plot(targ(1),targ(2),'*')
-    %plot(navMemory.lastPos(1),navMemory.lastPos(2),'g+')
     
     % plot the cloud contours
     cloudplot(cloud,t)
@@ -162,32 +102,15 @@ for kk=1:1000,
 end
 
 
-% For dynamics> 1.90509 kg 
-% Governing equations: x_dot = v * sin(theta)
-%                      y_dot = v * cos(theta)
-%                      theta_dot = v * mu
-
 function [u, navMemory, txMsg, targ] = simNavDecision(y,u,navMemory,rxMsgs,targ,border_targ,p,iter)
 % simulate agent deciding own acceleration
 
-% first get updated velocity estimate
-% start with direct differencing from last time
-%%%noisyVel = (y.ownPosition - navMemory.lastPos)/0.1;
-% and filter to remove some of the noise
-%%%navMemory.velEstimate = navMemory.velEstimate + ...
-%%%                 0.2*(noisyVel - navMemory.velEstimate);
-% reset last position store with new measurement
 navMemory.lastPos = y.Position;
-navMemory.velCommands = [u(1),u(2)];
-
-% guidance - constant speed towards target
-%targVel = y.targetVector*0.1/norm(y.targetVector);
-%y.HeadingToGoal
-
 closer_Raven = [];
 closest_Raven = inf;
+distToCloud = inf;
 
-
+% Estimate distance to others UAV after launching
 if iter > 20
     for i = 1:size(rxMsgs,2)
         closer_Raven = [closer_Raven norm(rxMsgs{i}(1:2)-y.Position)];
@@ -197,32 +120,42 @@ if iter > 20
     end
     closer_Raven = sort(closer_Raven);
     closest_Raven = closer_Raven(2);
+    navMemory.cloudLocation;
 end
 
+% If a smoke cloud has been detected, get the contours and distance
+% to the shortest contour, if the distance is smaller than a threshold
+% {50}, that point will be the new target
 
+if size(navMemory.cloudLocation,2)>3
+    
+    navMemory.cloudLocation = getCloudContours(navMemory);
+    distToCloud = distanceToCloud(navMemory);
+    
+    if distToCloud < 100
+        targ = contourTarget(targ,navMemory)+(-50 + (100).*rand(2,1));
+    end
+     
+end
 
-
-
-if (closest_Raven < 100 || navMemory.avoidanceTimeCounter ~= 0) && iter > 20
+% If a there's an UAV closer than a threshold {80} go to state 4 {Avoidance}
+if (closest_Raven < 80 || navMemory.avoidanceTimeCounter ~= 0) && iter > 20
     navMemory.navState = 4;
 end
 
-% default transmit message
+% default transmit message {Position and Position of ppm ~=1 }
 txMsg = [y.Position;[0;0]];
 
 switch navMemory.navState
     
     case 1, % Exploring
-        
-        %if targ
-            
-       u(1) = 10 * ((pi/2 - abs(y.HeadingToGoal))/(pi/2));
-       u(2) =  (2*pi/180) * (y.HeadingToGoal/(pi/2));
+       
+       % Input proportionally to the heading to target 
+       u(1) = 10 * ((pi/2 - abs(y.HeadingToTarget))/(pi/2));
+       u(2) =  (2*pi/180) * (y.HeadingToTarget/(pi/2));
        
        u(1) = sat(u(1),10,20);
-       u(2) = sat(u(2),-6*pi/180,6*pi/180);
-       
-        %if y.HeadingToGoal > 6*7 pi 
+       u(2) = sat(u(2),-6*pi/180,6*pi/180);    
         
         navMemory.navState = 1;
         
@@ -230,14 +163,21 @@ switch navMemory.navState
             navMemory.navState = 2;
         end
         
-       
-
+%         if size(navMemory.cloudLocation,2)>3
+%             distToCloud = distanceToCloud(navMemory);
+%             if distToCloud < 50
+%                 targ = contourTarget(targ,navMemory);
+%             end
+%         end
+        
         if navMemory.visitCloud == 1
             targ = contourTarget(targ,navMemory);
         else
-            if y.DistanceToTarget < 200 && y.DistanceToHome > 750
-               targ = rot(border_targ,mod(iter,pi));
+            if y.DistanceToTarget < 50 && y.DistanceToHome > 800
+               targ = rot(targ, -pi + 2*pi*rand(1));
                %targ = rot(border_targ,pi/4 * (-1 + (2).*rand(1)) );
+            elseif y.DistanceToTarget < 50 && y.DistanceToHome < 100
+               targ = border_targ;   
             elseif y.DistanceToHome > 1000
                 navMemory.navState = 3;
             end
@@ -259,13 +199,13 @@ switch navMemory.navState
                 targ = y.Position;
                     
                 u(1) = 10 ;
-                u(2) =  (1*pi/180) * (y.HeadingToGoal/(pi/4));
+                u(2) =  (1*pi/180) * (y.HeadingToTarget/(pi/4));
                 navMemory.navState = 1;
          end
          
            
         u(1) = 10 ;
-        u(2) =  (6*pi/180) ;%* (y.HeadingToGoal/(pi/4));
+        u(2) =  (6*pi/180) ;%* (y.HeadingToTarget/(pi/4));
         
         u(1) = sat(u(1),10,20);
         u(2) = sat(u(2),-6*pi/180,6*pi/180);
@@ -276,7 +216,7 @@ switch navMemory.navState
          
     case 3, % state = 3 -  Go home
           
-        if y.DistanceToHome > 1000
+        if y.DistanceToHome > 950
            targ = [0;0];
            navMemory.navState = 1;
         else
@@ -289,29 +229,30 @@ switch navMemory.navState
         navMemory.avoidanceTimeCounter = navMemory.avoidanceTimeCounter + 2; %dt
         
         if navMemory.avoidanceTimeCounter > navMemory.avoidanceTime
-            navMemory.navState = 1;
-            navMemory.avoidanceTimeCounter = 0;
-            targ = targ+(-50 + (100).*rand(2,1));
+             navMemory.navState = 1;
+             navMemory.avoidanceTimeCounter = 0;
+             if navMemory.visitCloud == 1
+                targ = contourTarget(targ,navMemory) + (-50 + (100).*rand(2,1));
+             else
+                targ = targ+(-50 + (100).*rand(2,1));    
+             end
         end
         
-        if navMemory.avoidanceTimeCounter <= 2%navMemory.avoidanceTime/6
+        if navMemory.avoidanceTimeCounter <= 6%navMemory.avoidanceTime/4
         u(1) =  20;
         u(2) = 6*pi/180;
         else
-        u(1) =  10;
+        u(1) =  20;
         u(2) = 0;            
         end
         
         
 end
 
-
-
-
 %%%%%%%%%%%%%%%%%
 
 function [target,x]=spreading(Num_agents,Dist_max,x)
-%
+% Targets equally spaced around a circle with radious = Dist_max-100 
 theta = 2*pi/Num_agents;
 for i=1:Num_agents 
 target{i}=  (Dist_max-100) * [sin(i*theta);cos(i*theta)]; 
@@ -320,17 +261,41 @@ end
 
 function [target]=contourTarget(target,navMemory)
 
-
-
 if size(navMemory.cloudLocation,2)>3
     contourPoints = [];
     index = 0;
     for i = 1:size(navMemory.cloudLocation,2)
         contourPoints = [contourPoints norm(navMemory.cloudLocation(:,i)-navMemory.lastPos)];
     end
-    [~,index] = max(contourPoints);
+    [~,index] = min(contourPoints);
     target = [navMemory.cloudLocation(1,index);navMemory.cloudLocation(2,index)];
 end
+
+function [contourPoints]=getCloudContours(navMemory)
+
+if size(navMemory.cloudLocation,2)>3
+    contourPoints = [];
+    %for i = 1:size(navMemory.cloudLocation,2)
+    index = convhull(navMemory.cloudLocation(1,:),navMemory.cloudLocation(2,:));
+    for i = 1:size(index)
+        contourPoints = [contourPoints [navMemory.cloudLocation(1,index);navMemory.cloudLocation(2,index)]];
+    end
+    contourPoints;
+    %[~,index] = max(contourPoints);
+    %target = [navMemory.cloudLocation(1,index);navMemory.cloudLocation(2,index)];
+end
+
+
+function dist = distanceToCloud(navMemory)
+
+if size(navMemory.cloudLocation,2)>3
+    distances = [];
+    for i = 1:size(navMemory.cloudLocation,2)
+        distances = [distances norm( navMemory.lastPos - navMemory.cloudLocation(i))];
+    end
+    dist = min(distances);
+end
+   
 
 function angle=getAngle(angle)
 
@@ -340,9 +305,6 @@ elseif angle < -pi
     angle = angle + 2*pi; 
 end
 
-
-% control - accelerate to that velocity
-%u = 0.3*(targVel - navMemory.velEstimate);
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
@@ -374,9 +336,8 @@ y.Position = x(1:2,aa) + 3*randn(2,1); % New stimated position plus noise
 y.DistanceToTarget = sqrt((y.Position(1)-targ(1))^2+(y.Position(2)-targ(2))^2);
 y.DistanceToHome = sqrt((y.Position(1)-0)^2+(y.Position(2)-0)^2);
 y.Heading = atan2(y.Position(1)-navMemory.lastPos(1),y.Position(2)-navMemory.lastPos(2));% New stimated orientation
-y.HeadingToGoal = getAngle(atan2(targ(1)-navMemory.lastPos(1),targ(2)-navMemory.lastPos(2)) - y.Heading);
+y.HeadingToTarget = getAngle(atan2(targ(1)-navMemory.lastPos(1),targ(2)-navMemory.lastPos(2)) - y.Heading);
  
-
 
 function val = sat(val,a,b)
 
@@ -389,8 +350,6 @@ end
 function coord = rot (coord, theta)
 
 coord = [cos(theta) -sin(theta); sin(theta) cos(theta)] * coord;
-
-
 
 
 function channel = initChannel()
