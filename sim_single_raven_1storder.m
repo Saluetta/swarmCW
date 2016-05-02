@@ -103,8 +103,21 @@ navMemory.velCommands = [u(1),u(2)];
 % guidance - constant speed towards target
 %targVel = y.targetVector*0.1/norm(y.targetVector);
 %y.HeadingToGoal
-u(1) = 15 * ((pi/2 - abs(y.HeadingToGoal))/(pi/2));
-u(2) =  (1*pi/180) * (y.HeadingToGoal/(pi/2));
+u(1) = 10 * ((pi/2 - abs(y.HeadingToGoal))/(pi/2));
+u(2) =  (2*pi/180) * (y.HeadingToGoal/(pi/2));
+% apply limits on v
+if u(1) > 20
+    u(1) = 20;
+end
+
+if u(1) < 10
+    u(1) = 10;
+end
+
+% apply limits on mu
+if u(2) > 6*pi/180
+    u(2) = 6*pi/180;
+end
 
 % control - accelerate to that velocity
 %u = 0.3*(targVel - navMemory.velEstimate);
@@ -136,8 +149,14 @@ function y = sim_GPS(x,navMemory,targ)
 % first is position, plus noise
 y.Position = x(1:2) + 3*randn(2,1); % New stimated position plus noise
 y.Heading = atan2(y.Position(1)-navMemory.lastPos(1),y.Position(2)-navMemory.lastPos(2));% New stimated orientation
-y.HeadingToGoal = (atan2(targ(1)-navMemory.lastPos(1),targ(2)-navMemory.lastPos(2)) - y.Heading); 
+y.HeadingToGoal = getAngle((atan2(targ(1)-navMemory.lastPos(1),targ(2)-navMemory.lastPos(2)) - y.Heading)); 
 
+function angle=getAngle(angle)
 
+if angle > pi
+    angle = angle - 2*pi;
+elseif angle < -pi
+    angle = angle + 2*pi; 
+end
 
 
