@@ -17,7 +17,7 @@ v = 10;
 mu = 0;
 max_dist = 1000;
 max_dist_buffer =  max_dist - max_dist*0.1;
-targ = regularPolygon(swarmSize,max_dist_buffer);
+targ = regularPolygon(swarmSize,max_dist);
 channel = initChannel();
 
 % memory allocation
@@ -44,7 +44,7 @@ for kk=1:steps
         y{UAV} = sim_GPS(x,UAV,navMemory{UAV},targ{UAV});
         pollution = cloudsamp(cloud,x(1,UAV),x(2,UAV),t);  
         
-        [u{UAV},navMemory{UAV},targ{UAV}] = simNavDecision(x(:,UAV),y{UAV},u{UAV},UAV,...
+        [u{UAV},navMemory{UAV},targ{UAV}] = simNavDecision(y{UAV},u{UAV},UAV,...
             navMemory{UAV},targ{UAV},pollution,kk,dt,max_dist_buffer,msgs);      
        
         x(:,UAV) = simMove(x(:,UAV),u{UAV},dt);        
@@ -61,7 +61,7 @@ for kk=1:steps
         if navMemory{UAV}.navState == 1
             col = 'c';
         elseif navMemory{UAV}.navState == 2
-            col = 'm';
+            col = 'b';
         elseif navMemory{UAV}.navState == 3
             col = 'r';
         else 
@@ -69,7 +69,7 @@ for kk=1:steps
         end
         scatter(x(1,UAV),x(2,UAV),35,col,'filled')
         plot (xs{UAV}(1,:),xs{UAV}(2,:),':','Color',[0.5 0.5 0.5])
-        plot([x(1,UAV) x(1,UAV)+50*cos(x(3,UAV))],[x(2,UAV) x(2,UAV)+50*sin(x(3,UAV))],col);
+%         plot([x(1,UAV) x(1,UAV)+50*cos(x(3,UAV))],[x(2,UAV) x(2,UAV)+50*sin(x(3,UAV))],col);
     end
     cloudplot(cloud,t)
     cloudsamp(cloud,x(1),x(2),t);
@@ -85,9 +85,11 @@ y.HeadingToGoal = atan2(targ(1)-navMemory.lastPos(1),targ(2)-navMemory.lastPos(2
 y.DistanceToGoal = sqrt((y.Position(1)-targ(1))^2+(y.Position(2)-targ(2))^2);
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-function [u,navMemory,targ] = simNavDecision(x,y,u,UAV,navMemory,targ,pollution,iteration,dt,max_dist,msgs)
+function [u,navMemory,targ] = simNavDecision(y,u,UAV,navMemory,targ,pollution,iteration,dt,max_dist,msgs)
 
 navMemory.lastPos = y.Position;
+
+%% %%%%%%%%%%%%%%%%%%%%%% PROCESS MESSAGES %%%%%%%%%%%%%%%%%%%%%%%%%
 
 msg = zeros(3,size(msgs,1));
 if ~isempty(msgs) %the channel is empty during the first iteration
@@ -98,7 +100,29 @@ obs = msg(1:2,:); %set everybody's position as an obstacle
 msg(:,UAV) = [];
 obs(:,UAV) = [];
 end
+
+%% %%%%%%%%%%%%%%%%%%%%%% AVOIDANCE FLAG %%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+avoidance = 0;
+if iteration > 50 % launching is finished   
+next_position = simMove([y.Position;y.Heading],u,dt); %calculate position with this state's velocity inputs u
+dist_from_zero_next = norm([next_position(1) next_position(2)] - [0 0]); % distance from the base
+diff_vector_next = bsxfun(@minus,next_position(1:2),obs); % compute difference between next position and obstacles
+[min_dist_next,Idx] = min(sqrt(sum(diff_vector_next.^2,1))); % compute minimum distance between you and all obstacles
+nearestAgent = obs(:,Idx); %find nearest agent based on its Idx
+HeadingToObs = atan2(nearestAgent(1)-y.Position(1),nearestAgent(2)-y.Position(2)) - y.Heading; % align yourself with obstacle
+    if dist_from_zero_next > max_dist || min_dist_next < 80 % if close to map bounds or within 80 from closest obstacle
+       avoidance = 1;
+    end
+end
+
+%% %%%%%%%%%%%%%%%%%%%%%%%% SWARMING FLAG %%%%%%%%%%%%%%%%%%%%%%%%%%%
+swarming = 0;
+
 cloud_dweller = find(msg(3,:)>0.5); %those who are in the cloud
+if ~isempty(cloud_dweller) && size(cloud_dweller,2)<5 % if somebody is in the cloud
+   targ = msg(1:2,cloud_dweller); % target is their position
+   swarming =1;
+end
 
 switch navMemory.navState    
         
@@ -107,20 +131,10 @@ switch navMemory.navState
            u(1) = 10 ;
            u(2) = y.HeadingToGoal*pi/180;
            
-           if ~isempty(cloud_dweller) % if somebody is in the cloud
-               targ = msg(1:2,cloud_dweller); % target is their position
-           end
-           
-           if iteration > 50
-               next_position = simMove(x,u,dt);
-               dist_from_zero_next = norm([next_position(1) next_position(2)] - [0 0]);
-               diff_vector_next = bsxfun(@minus,next_position(1:2),obs);
-               min_dist_next = min(sqrt(sum(diff_vector_next.^2,1)));
-               
-               if dist_from_zero_next > max_dist || min_dist_next < 80
-                   navMemory.navState = 3;
-               end
-               
+           if avoidance
+               navMemory.navState = 3;
+           elseif swarming
+               navMemory.navState = 1;
            elseif y.DistanceToGoal < 40;
                navMemory.navState = 2; % explore
            elseif pollution > 0.8 && pollution < 1.2
@@ -131,21 +145,12 @@ switch navMemory.navState
     case 2, % explore -  make a spiral motion
         
         u(1) = 10 ;
-        u(2) = (1/300)*exp(-0.007*(iteration-1)*dt)/pi*180;
+        u(2) = ((1/300)*exp(-0.007*(iteration-1)*1.5*dt))/pi*180; % makes a spiral growing with iteration loop
         
-        if iteration > 50
-            next_position = simMove(x,u,dt);
-            dist_from_zero_next = norm([next_position(1) next_position(2)] - [0 0]);
-            diff_vector_next = bsxfun(@minus,next_position(1:2),obs);
-            min_dist_next = min(sqrt(sum(diff_vector_next.^2,1)));
-            
-            if dist_from_zero_next > max_dist || min_dist_next < 80
-                navMemory.navState = 3;
-            end
-        end
-        
-        if ~isempty(cloud_dweller) % if somebody is in the cloud
-            targ = msg(1:2,cloud_dweller); % target is their position
+        if avoidance
+            navMemory.navState = 3;
+            avoidance.timer = avoidance.timer + iteration;
+        elseif swarming 
             navMemory.navState = 1;
         elseif pollution > 0.8 && pollution < 1.2
             navMemory.navState = 4; %if close to cloud, track it
@@ -154,34 +159,24 @@ switch navMemory.navState
    
     case 3, %  avoid - avoid other agents and stay inside map
         
-        diff_vector = bsxfun(@minus,y.Position,obs);
-        [~,Idx] = min(sqrt(sum(diff_vector.^2,1)));
-        nearestAgent = obs(:,Idx);
-        HeadingToObs = atan2(nearestAgent(1)-y.Position(1),nearestAgent(2)-y.Position(2)) - y.Heading;
-                
-        u(1) = 1;
-        u(2) = (pi/180) * (HeadingToObs + pi);
+        u(1) = 10;
+        u(2) = (180/pi) * (HeadingToObs + pi); % turn PI in opposite direction of the obstacle
         
-        next_position = simMove(x,u,dt);
-        dist_from_zero_next = norm([next_position(1) next_position(2)] - [0 0]);
-        diff_vector_next = bsxfun(@minus,next_position(1:2),obs);
-        min_dist_next = min(sqrt(sum(diff_vector_next.^2,1)));
-        
-        if dist_from_zero_next < max_dist || min_dist_next > 50
+        if ~avoidance
             navMemory.navState = 2;
-        end               
+        end
         
     case 4, % tracking target
                 
         if pollution < 0.9 || pollution > 1.1
             u(1) = 3;
-            u(2) = 3*pi/180;
+            u(2) = 3;
             if pollution>2.5
                navMemory.navState = 2;
             end
         else
             u(1) = 1;
-            u(2) = 6*pi/180;
+            u(2) = 6;
             targ = y.Position;
         end       
 end
@@ -197,19 +192,19 @@ maxv = 20;
 minmu = -6;
 maxmu = 6;
     
-% check if within speed limits
-    if v < minv
-        v = minv;
-    elseif v > maxv
-        v = maxv;
-    end
+% check if within speed limits and cap it
+if v < minv
+    v = minv;
+elseif v > maxv
+    v = maxv;
+end
     
-% check if within angular velocity limits
-    if mu < minmu
-        mu = minmu;
-    elseif mu > maxmu
-        mu = maxmu;
-    end
+% check if within angular velocity limits and cap it
+if mu < minmu
+    mu = minmu;
+elseif mu > maxmu
+    mu = maxmu;
+end
         
 % Runge Kutta 4th order
 k1 = f_continuous(x,v,mu);
