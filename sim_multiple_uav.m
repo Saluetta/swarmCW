@@ -101,9 +101,10 @@ Y.position = X(1:2,1) + 3*randn(2,1);
 Y.heading = atan2(Y.position(1,1) - memory.lastPosition(1,1),...
                   Y.position(2,1) - memory.lastPosition(2,1));
               
-Y.headingToTarget = atan2(target(1,1) - memory.lastPosition(1,1),...
+Y.headingToTarget = bindAngleToFourQuadrant(...
+                    atan2(target(1,1) - memory.lastPosition(1,1),...
                           target(2,1) - memory.lastPosition(2,1))...
-                    - Y.heading;
+                    - Y.heading);
                 
 % calculate distance to nearest neighbouring agent
 Y.nearestAgentVector = [inf;inf]; % vector from this agent to nearest one
@@ -121,9 +122,10 @@ for k=1:size(messages,2)
     end
 end
 
-Y.headingToNearestAgent = atan2(nearestAgent(1) - Y.position(1),...
+Y.headingToNearestAgent = bindAngleToFourQuadrant(...
+                          atan2(nearestAgent(1) - Y.position(1),...
                                 nearestAgent(2) - Y.position(2))...
-                          - Y.heading;
+                          - Y.heading);
 
 
 
@@ -144,7 +146,7 @@ switch memory.stateFSM
         v_new = 10 * ((pi/2 - abs(Y.headingToTarget))/(pi/2));
         mu_new =  (3*pi/180) * (Y.headingToTarget/(pi/2));
     
-    case 2, % If reached target, circle nearby
+    case 2, % if colliding, evade
         v_new = 20;
         mu_new = 1.5*pi/180;
 end
@@ -234,4 +236,15 @@ function messagePool = simulateBroadcast(messagePool)
 % replace set of current messages with new set
     messagePool.currentMessages = messagePool.newMessages;
     messagePool.newMessages = [];
+end
+
+% Math Functions ----------------------------------------------------------
+function angle = bindAngleToFourQuadrant(angle)
+% input angle in radians
+% sets range from -pi to pi
+    if angle > pi
+        angle = angle - 2*pi;
+    elseif angle < -pi
+        angle = angle + 2*pi;
+    end
 end

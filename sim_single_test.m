@@ -32,10 +32,10 @@ U = [v; mu];
 %% initialize agent memory
 memory.lastPosition = X(1:2,1);
 % memory.velocityCommands = U;
-memory.stateFSM = 2;
+memory.stateFSM = 1;
 
 %% target
-target = [10;10];
+target = [0;-500];
 
 %% main simulaiton loop
 for k = 1:nSteps
@@ -50,7 +50,6 @@ for k = 1:nSteps
     
     % move uav
     X = simMove(X,U,dt);
-    store(:,k) = [X(:,1);k;Y.heading;Y.donkey];
     
     % take measurement
     p = cloudsamp(cloud,X(1,1),X(2,1),t);
@@ -66,10 +65,7 @@ for k = 1:nSteps
     title(sprintf('t=%.1f secs pos=(%.1f, %.1f)  Concentration=%.2f',t, X(1,1),X(2,1),p)) 
     plot(X(1,1),X(2,1),'o') % robot location
     plot(target(1,1), target(2,1), 'sg') % target
-    plot(store(1,:), store(2,:), 'k')
-%     plot(store(4,:), pi + store(5,:), 'b')
-%     plot(store(4,:), store(6,:), 'm')
-%     xlim([0,nSteps])
+    
     cloudplot(cloud,t)
     
     pause(0.1)
@@ -91,12 +87,11 @@ Y.position = X(1:2,1) + 3*randn(2,1);
 Y.heading = atan2(Y.position(1,1) - memory.lastPosition(1,1),...
                   Y.position(2,1) - memory.lastPosition(2,1));
               
-Y.headingToTarget = atan2(target(1,1) - memory.lastPosition(1,1),...
+Y.headingToTarget = bindAngleToFourQuadrant(...
+                    atan2(target(1,1) - memory.lastPosition(1,1),...
                           target(2,1) - memory.lastPosition(2,1))...
-                    - Y.heading;
+                    - Y.heading);
                 
-Y.monkey = atan2( Y.position(2,1),Y.position(1,1) );
-Y.donkey = atan((Y.position(1,1) - memory.lastPosition(1,1))/(Y.position(2,1) - memory.lastPosition(2,1)));
 
 % [Note: heading is measued from North in clockwise direction]
 end
@@ -118,8 +113,8 @@ switch memory.stateFSM
         mu_new =  (3*pi/180) * (Y.headingToTarget/(pi/2));
     
     case 2, % If reached target, circle nearby
-        v_new = 10;
-        mu_new = (2 + (0 + Y.monkey)^2 ) / (0.5*(1 + (0 + Y.monkey)^2)^1.5);
+        v_new = 20;
+        mu_new = 2*pi/180;
 end
 
 % apply limits on v
@@ -134,11 +129,6 @@ end
 % apply limits on mu
 if mu_new > 6*pi/180
     mu_new = 6*pi/180;
-end
-
-% TODO: check this
-if mu_new < 0
-    mu_new = 0;
 end
 
 U_new = [v_new; mu_new];
@@ -174,4 +164,14 @@ X_dot(1,1) = U(1,1) * sin( X(3,1) );
 X_dot(2,1) = U(1,1) * cos( X(3,1) );
 X_dot(3,1) = U(1,1) * U(2,1);
 
+end
+
+function angle = bindAngleToFourQuadrant(angle)
+% input angle in radians
+% sets range from -pi to pi
+    if angle > pi
+        angle = angle - 2*pi;
+    elseif angle < -pi
+        angle = angle + 2*pi;
+    end
 end
