@@ -38,7 +38,9 @@ for i = 1:1:nRavens
     memory(i).lastPosition = X(1:2,i);
     memory(i).stateFSM = 1;
     memory(i).pollution = 0;
-    target(:,i) = [-500*cos(i*2*pi/nRavens);500*sin(i*2*pi/nRavens)];
+    memory(i).turnDirection = 1;
+%     target(:,i) = [-500*cos(i*2*pi/nRavens);500*sin(i*2*pi/nRavens)];
+    target(:,i) = [500,10*i];
 end
 
 %% initialize communications
@@ -81,7 +83,7 @@ for k = 1:nSteps
 
         % drawing
         agentColour = colours(memory(i).stateFSM,:);
-        plot(X(1,i),X(2,i),'Color',agentColour,'Marker','o') % robot location
+        plot(X(1,i),X(2,i),'Color',agentColour,'Marker','o', 'MarkerSize',3) % robot location
         plot(target(1,i), target(2,i), 'sg') % target
     end  
     
@@ -156,18 +158,22 @@ switch memory.stateFSM
         v_new = 10 * ((pi/2 - abs(Y.headingToTarget))/(pi/2));
         mu_new =  (3*pi/180) * (Y.headingToTarget/(pi/2));
         
-        if Y.nearestDist < 150
+        if Y.nearestDist < 50
             memory.stateFSM = 2;
         else
-            if memory.pollution > 0.85 && memory.pollution < 1.15
-                memory.stateFSM = 3;
-                target = Y.position;
+            if norm(Y.position) > 1000
+                memory.stateFSM = 4;
+            else
+                if memory.pollution > 0.85 && memory.pollution < 1.15
+                    memory.stateFSM = 3;
+                    target = Y.position;
+                end
             end
         end
         
     case 2, % if colliding, evade
         v_new = 10 * ((pi/2 - abs(Y.headingToNearestAgent+pi/2))/(pi/2));
-        mu_new = (3*pi/180) * ((Y.headingToNearestAgent+pi/2)/(pi/2));
+        mu_new = (6*pi/180) * ((Y.headingToNearestAgent+pi/2)/(pi/2));
         
         if Y.nearestDist > 100
             memory.stateFSM = 1;
@@ -175,8 +181,8 @@ switch memory.stateFSM
         
     case 3, % track contour
         v_new = 10;
-        mu_new = 4*pi/180;
-        
+        mu_new = 6*pi/180;% *  memory.turnDirection;
+        memory.turnDirection = memory.turnDirection * -1;
         
         if Y.nearestDist < 150
             memory.stateFSM = 2;
@@ -188,7 +194,17 @@ switch memory.stateFSM
                 memory.stateFSM = 1;
             end
         end
+    case 4, % reaching boundary, turn back
+        v_new = 10 * ((pi/2 - abs(Y.headingToTarget - pi))/(pi/2));
+        mu_new =  (3*pi/180) * (Y.headingToTarget - pi)/(pi/2);
         
+        if Y.nearestDist < 150
+            memory.stateFSM = 2;
+        else
+            if norm(Y.position) > 1000
+               memory.stateFSM = 1; 
+            end
+        end
 end
 
 [v_new, mu_new] = applyConstraints(v_new, mu_new);
