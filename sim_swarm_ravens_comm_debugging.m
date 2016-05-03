@@ -1,5 +1,5 @@
-function sim_swarm_ravens_comm
-
+function sim_swarm_ravens_comm_debugging
+tic
 % load cloud data
 % choose a scenario
 % load 'cloud1.mat'
@@ -9,7 +9,7 @@ load 'cloud2.mat'
 t = 0;
 dt = 2;
 
-Num_agents = 7;
+Num_agents = 20; % 7 ok
 Dist_max = 1000;
 x = zeros(3,Num_agents); % Initial State {only position}
 
@@ -25,7 +25,7 @@ simNavPerformance.estimatedCloud = [];
 simNavPerformance.estimatedCloudArea = 0;
 simNavPerformance.realCloud = [];
 simNavPerformance.realCloudArea = 0;
-simNavPerformance.distanceUAV = [];
+simNavPerformance.distanceToUavs = [];
 simNavPerformance.numColisions =0;
 simNavPerformance.timeUntilDetection = 0;
 simNavPerformance.numCloudsDetected = 0;
@@ -54,7 +54,7 @@ figure
 hold on % so each plot doesn't wipte the predecessor
 
 % main simulation loop
-for kk=1:1000
+for kk=1:900 %1000
     
     % time
     t = t + dt;
@@ -71,7 +71,7 @@ for kk=1:1000
         [rxMsgs{agent},channel] = simReceive(agent,channel);
         
         % agent makes decision on acceleration
-        [u{agent},navMemory{agent},txMsgs{agent},curr_targ{agent},simNavPerformance] = simNavDecision(y{agent},u{agent},navMemory{agent},rxMsgs{agent},curr_targ{agent},border_targ{agent},p,kk,simNavPerformance); 
+        [u{agent},navMemory{agent},txMsgs{agent},curr_targ{agent},simNavPerformance] = simNavDecision(y{agent},u{agent},navMemory{agent},rxMsgs{agent},curr_targ{agent},border_targ{agent},p,kk,simNavPerformance,x); 
         
         %Debugging  Record positions
         xs{agent}(1:2,kk) = [x(1,agent),x(2,agent)];
@@ -80,28 +80,34 @@ for kk=1:1000
     end
     
     %%% DEBUGGING ONLY - computing the real position of the cloud's contour:
-    for i =100:40:800
-        for j=100:40:800
+    for i =0:50:1000
+        for j=0:50:1000
             p = cloudsamp(cloud,i,j,t);
-            if p < 1.1 && p > 0.9
+            if p < 1.01 && p > 0.99
                 simNavPerformance.realCloud = [simNavPerformance.realCloud [i;j]];  
             end
         end
     end
     simNavPerformance.realCloud = getCloudContours(simNavPerformance.realCloud);
-    if size(simNavPerformance.realCloudArea,2)>3
+    
+    if size(simNavPerformance.realCloud,2)>3
         simNavPerformance.realCloudArea = polyarea(simNavPerformance.realCloud(1,:),simNavPerformance.realCloud(2,:));
     end
     %%%
     
     
     channel = simChannel(channel,x);
-    if kk==1000
+    if kk==900
         plotAll(simNavPerformance,x,p,navMemory,Num_agents,cloud,t,curr_targ);
         simNavPerformance.estimatedCloudArea
         simNavPerformance.realCloudArea
+        100*(1-abs((simNavPerformance.estimatedCloudArea-simNavPerformance.realCloudArea)/simNavPerformance.realCloudArea))
+        figure
+        hist(simNavPerformance.distanceToUavs)
+        simNavPerformance.timeUntilDetection
+        simNavPerformance.numColisions
+        toc
     end
-    
     
   %  plotUavCloud(x,p,navMemory,Num_agents,cloud,t);
   
@@ -113,24 +119,35 @@ for kk=1:1000
 end
 
 
-function [u, navMemory, txMsg, targ, simNavPerformance] = simNavDecision(y,u,navMemory,rxMsgs,targ,border_targ,p,iter,simNavPerformance)
+function [u, navMemory, txMsg, targ, simNavPerformance] = simNavDecision(y,u,navMemory,rxMsgs,targ,border_targ,p,iter,simNavPerformance,x)
 % simulate agent deciding own acceleration
 
 navMemory.lastPos = y.Position;
 closer_Raven = [];
+closer_RavenReal = [];
 closest_Raven = inf;
+closest_RavenReal = inf;
 distToCloud = inf;
 
 % Estimate distance to others UAV after launching
 if iter > 20
     for i = 1:size(rxMsgs,2)
         closer_Raven = [closer_Raven norm(rxMsgs{i}(1:2)-y.Position)];
+        closer_RavenReal = [closer_RavenReal norm(x(1:2,i)-y.Position)];
         if rxMsgs{i}(3) ~= 0 && rxMsgs{i}(4) ~= 0
             navMemory.cloudLocation = [navMemory.cloudLocation,[rxMsgs{i}(3);rxMsgs{i}(4)]];
         end
     end
     closer_Raven = sort(closer_Raven);
     closest_Raven = closer_Raven(2);
+    
+    closer_RavenReal = sort(closer_RavenReal);
+    closest_RavenReal = closer_RavenReal(2);
+    
+    if closest_RavenReal < 3
+        simNavPerformance.numColisions = simNavPerformance.numColisions + 1;
+    end
+    simNavPerformance.distanceToUavs = [simNavPerformance.distanceToUavs closest_Raven];
 end
 
 % If a smoke cloud has been detected, get the contours and distance
@@ -138,6 +155,10 @@ end
 % {50}, that point will be the new target
 
 if size(navMemory.cloudLocation,2)>3
+    
+    if simNavPerformance.timeUntilDetection == 0
+        simNavPerformance.timeUntilDetection = iter*2;
+    end
     
     navMemory.cloudLocation = getCloudContours(navMemory.cloudLocation);
     distToCloud = distanceToCloud(navMemory);
@@ -170,7 +191,7 @@ switch navMemory.navState
         
         navMemory.navState = 1;
         
-        if p > 0.8 && p < 1.2
+        if p > 0.9 && p < 1.1
             navMemory.navState = 2;
         end
                
@@ -193,7 +214,7 @@ switch navMemory.navState
         
          navMemory.visitCloud = 1;
         
-         if p > 0.8 && p < 1.2
+         if p > 0.99 && p < 1.1
                 targ = y.Position;
                 navMemory.navState = 2;
                     
@@ -385,12 +406,13 @@ function plotAll(simNavPerformance,x,p,navMemory,Num_agents,cloud,t,curr_targ)
     
     %%% DEBUGGING ONLY - computing the real position of the cloud's contour:
     
-    if size(simNavPerformance.realCloud,2) ~= 0
-        fill (simNavPerformance.realCloud(1,:),simNavPerformance.realCloud(2,:),0.5*ones(size(simNavPerformance.realCloud(2))))
-    end
-    
     if size(simNavPerformance.estimatedCloud,2) ~= 0
         fill (simNavPerformance.estimatedCloud(1,:),simNavPerformance.estimatedCloud(2,:),ones(size(simNavPerformance.estimatedCloud(2))))
+    end
+    
+    if size(simNavPerformance.realCloud,2) ~= 0
+        fill (simNavPerformance.realCloud(1,:),simNavPerformance.realCloud(2,:),0*ones(size(simNavPerformance.realCloud(2))))
+        disp('noot noot')
     end
     
     %%%
@@ -410,6 +432,14 @@ function plotAll(simNavPerformance,x,p,navMemory,Num_agents,cloud,t,curr_targ)
     % plot the cloud contours
     cloudplot(cloud,t)
     cloudsamp(cloud,x(1),x(2),t);
+    
+    figure
+        fill (simNavPerformance.realCloud(1,:),simNavPerformance.realCloud(2,:),0.5*ones(size(simNavPerformance.realCloud(2))))
+   
+    
+    figure
+        fill (simNavPerformance.estimatedCloud(1,:),simNavPerformance.estimatedCloud(2,:),ones(size(simNavPerformance.estimatedCloud(2))))
+   
     % pause ensures that the plots update
     pause(0.1)
     
