@@ -40,8 +40,8 @@ for i = 1:1:nRavens
     memory(i).pollution = 0;
     memory(i).turnDirection = 1;
     
-%     target(:,i) = [-500*cos(i*2*pi/nRavens);500*sin(i*2*pi/nRavens)];
-    target(:,i) = [500,10*i];
+    target(:,i) = [-500*cos(i*2*pi/nRavens);500*sin(i*2*pi/nRavens)];
+%     target(:,i) = [500,10*i];
 end
 
 %% initialize communications
@@ -148,14 +148,14 @@ function [ U_new, memory, target] = simDecision( Y, U, memory, target, messages,
 %SIMDECISION returns new velocity commands based on current estimated
 %state and internal memory
 
-% updae agent's memory
+% ---- updae agent's memory
 memory.lastPosition = Y.position;
 
-% find agent that is closest to this agent
-% calculate distance to nearest neighbouring agent
+% ---- find agent that is closest to this agent
 nearestAgentVector = [inf;inf]; % vector from this agent to nearest one
 nearestAgent = [inf;inf]; % estimated position of the nearest agent
 nearestDist = inf;
+
 % loop through all agents
 for k=1:size(messages,2)
     if k ~= agentNo % dont check this agent with itself
@@ -172,9 +172,20 @@ headingToNearestAgent = bindAngleToFourQuadrant(...
                           atan2(nearestAgent(1) - Y.position(1),...
                                 nearestAgent(2) - Y.position(2))...
                           - Y.heading);
+                      
+% ---- find position of cloud based on messages
+if ~isempty(messages)
+    agentsInCloud = find(messages(3,:) > 0.5); % get all agents in cloud
+    if ~isempty(agentsInCloud) && ~any(agentNo==agentsInCloud)
+        target = messages(1:2,agentsInCloud(1,1));
+    end
+end
 
 
-
+% ---- flags that are used in the state machine
+% definine them here so that I can avoid long nested if-else statements
+shouldEvade = nearestDist < 50;
+isPollutionInRange = memory.pollution > 0.85 && memory.pollution < 1.15;
 
 % target = target;
 % a finite state machine to decide what control inputs to be given
@@ -184,13 +195,13 @@ switch memory.stateFSM
         v_new = 10 * ((pi/2 - abs(Y.headingToTarget))/(pi/2));
         mu_new =  (3*pi/180) * (Y.headingToTarget/(pi/2));
         
-        if nearestDist < 50
+        if shouldEvade
             memory.stateFSM = 2;
         else
             if norm(Y.position) > 1000
                 memory.stateFSM = 4;
             else
-                if memory.pollution > 0.85 && memory.pollution < 1.15
+                if isPollutionInRange
                     memory.stateFSM = 3;
                     target = Y.position;
                 end
@@ -201,19 +212,19 @@ switch memory.stateFSM
         v_new = 10 * ((pi/2 - abs(headingToNearestAgent+pi/2))/(pi/2));
         mu_new = (6*pi/180) * ((headingToNearestAgent+pi/2)/(pi/2));
         
-        if nearestDist > 100
+        if ~shouldEvade
             memory.stateFSM = 1;
         end
         
-    case 3, % track contour
+    case 3, % track contour - spin in a circle nearby
         v_new = 10;
         mu_new = 6*pi/180;% *  memory.turnDirection;
         memory.turnDirection = memory.turnDirection * -1;
         
-        if nearestDist < 150
+        if shouldEvade
             memory.stateFSM = 2;
         else
-            if memory.pollution > 0.85 && memory.pollution < 1.15
+            if isPollutionInRange
                 memory.stateFSM = 3;
                 target = Y.position;
             else
@@ -224,7 +235,7 @@ switch memory.stateFSM
         v_new = 10 * ((pi/2 - abs(Y.headingToTarget - pi))/(pi/2));
         mu_new =  (3*pi/180) * (Y.headingToTarget - pi)/(pi/2);
         
-        if nearestDist < 150
+        if shouldEvade
             memory.stateFSM = 2;
         else
             if norm(Y.position) > 1000
