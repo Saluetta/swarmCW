@@ -23,11 +23,11 @@ dt = 2; % [s]
 nSteps = tMax / dt; % simulation steps
 
 %% initialize swarm parameters
-nRavens = 2; % number of UAVs
+nRavens = 7; % number of UAVs
 
 %% initialize true state and control input
 X = zeros(3,nRavens); % [m; m; rad]
-X = [-100,100;0,0;0,0];
+% X = [-100,100;0,0;0,0];
 
 v = 10*ones(1,nRavens); % [m/s]
 mu = 0.1*ones(1,nRavens); % [rad/m]
@@ -40,7 +40,7 @@ for i = 1:1:nRavens
     memory(i).pollution = 0;
     memory(i).turnDirection = 1;
     
-    target(:,i) = [-500*cos(i*2*pi/nRavens);500*sin(i*2*pi/nRavens)];
+    target(:,i) = [700*sin(i*2*pi/nRavens+pi/4);700*cos(i*2*pi/nRavens+pi/4)];
 %     target(:,i) = [500,10*i];
 end
 
@@ -69,7 +69,7 @@ for k = 1:nSteps
         Y(i) = simEstimateState(X(:,i), memory(i), target(:,i),receivedMessages, i);
 
         % agent makes a decision based on its estimated state, y
-        [U(:,i),memory(i), target(:,i)] = simDecision(Y(:,i), U(:,i), memory(i), target(:,i), receivedMessages, i);
+        [U(:,i),memory(i), target(:,i)] = simDecision(Y(:,i), U(:,i), memory(i), target(:,i), receivedMessages, i, dt);
 
         % move uav
         X(:,i) = simMove(X(:,i),U(:,i),dt);
@@ -144,7 +144,7 @@ Y.headingToTarget = bindAngleToFourQuadrant(...
 end
 
 % -------------------------------------------------------------------------
-function [ U_new, memory, target] = simDecision( Y, U, memory, target, messages, agentNo )
+function [ U_new, memory, target] = simDecision( Y, U, memory, target, messages, agentNo, dt )
 %SIMDECISION returns new velocity commands based on current estimated
 %state and internal memory
 
@@ -159,9 +159,10 @@ nearestDist = inf;
 % loop through all agents
 for k=1:size(messages,2)
     if k ~= agentNo % dont check this agent with itself
-        distance = norm(messages(1:2,k) - Y.position(1:2));
+        nextPosition = simMove([Y.position(1:2);Y.heading], U, dt);
+        distance = norm(messages(1:2,k) - nextPosition(1:2,1));
         if (distance < nearestDist)
-            nearestAgentVector = messages(1:2,k) - Y.position(1:2);
+            nearestAgentVector = messages(1:2,k) - nextPosition(1:2,1);
             nearestAgent = messages(1:2,k);
             nearestDist = distance;
         end
@@ -174,11 +175,35 @@ headingToNearestAgent = bindAngleToFourQuadrant(...
                           - Y.heading);
                       
 % ---- find position of cloud based on messages
+numberOfRavens = size(messages,2);
 if ~isempty(messages)
     agentsInCloud = find(messages(3,:) > 0.5); % get all agents in cloud
-    if ~isempty(agentsInCloud) && ~any(agentNo==agentsInCloud)
-        target = messages(1:2,agentsInCloud(1,1));
+    if ~isempty(agentsInCloud)
+        cloudLocation = messages(1:2,agentsInCloud(1,1)); % approximate
+        
+        [idx] = knnsearch(messages(1:2,:)',cloudLocation', 'K', floor(numberOfRavens/2));
+        
+        % compute distances of all agents from this location
+%         distanceVectorsToCloud = bsxfun(@minus, cloudLocation, messages(1:2,:));
+%         distancesToCloud = sqrt(sum(distanceVectorsToCloud.^2,1));
+        
+        % send this agent to cloud if it is among the N/2 closest agents and
+        % is not already in the cloud
+        if ~any(agentNo==agentsInCloud) && any(agentNo==idx)
+            vec = [-1;1];
+            target = messages(1:2,agentsInCloud(1,1)) + 20*vec(randi(2, 2, 1));
+        end
     end
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
 end
 
 
@@ -273,7 +298,7 @@ end
 end
 
 % -------------------------------------------------------------------------
-function [ X_next ] = simMove( X,U,dt )
+function [ X_next ] = simMove( X, U, dt )
 %simMove given current state, control input and time step, this function
 %returns the state at the next instant of time
 %   Implements a simple 4th order Runge Kutta prediction
@@ -289,7 +314,7 @@ X_next(3,1) = mod(X_next(3,1), 2*pi);
 end
 
 % -------------------------------------------------------------------------
-function [ X_dot ] = continuousDynamics( X,U )
+function [ X_dot ] = continuousDynamics( X, U )
 %CONTINUOUSDYNAMICS simulates continuous dynamics of the system
 %   Taken from the model of the UAV
 %   X = [x;y;theta], U = [v;mu]
