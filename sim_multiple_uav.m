@@ -13,7 +13,7 @@ load 'cloud1.mat'
 % load 'cloud2.mat'
 
 %% initialize figure
-figure
+figure('units','normalized','outerposition',[0 0 1 1])
 hold on;
 
 %% define time and time step
@@ -39,6 +39,7 @@ for i = 1:1:nRavens
     memory(i).stateFSM = 1;
     memory(i).pollution = 0;
     memory(i).turnDirection = 1;
+    
 %     target(:,i) = [-500*cos(i*2*pi/nRavens);500*sin(i*2*pi/nRavens)];
     target(:,i) = [500,10*i];
 end
@@ -68,7 +69,7 @@ for k = 1:nSteps
         Y(i) = simEstimateState(X(:,i), memory(i), target(:,i),receivedMessages, i);
 
         % agent makes a decision based on its estimated state, y
-        [U(:,i),memory(i), target(:,i)] = simDecision(Y(:,i), U(:,i), memory(i), target(:,i), i);
+        [U(:,i),memory(i), target(:,i)] = simDecision(Y(:,i), U(:,i), memory(i), target(:,i), receivedMessages, i);
 
         % move uav
         X(:,i) = simMove(X(:,i),U(:,i),dt);
@@ -117,40 +118,65 @@ Y.headingToTarget = bindAngleToFourQuadrant(...
                           target(2,1) - memory.lastPosition(2,1))...
                     - Y.heading);
                 
-% calculate distance to nearest neighbouring agent
-Y.nearestAgentVector = [inf;inf]; % vector from this agent to nearest one
-nearestAgent = [inf;inf]; % estimated position of the nearest agent
-Y.nearestDist = inf;
-% loop through all agents
-for k=1:size(messages,2)
-    if k ~= agentNo % dont check this agent with itself
-        distance = norm(messages(1:2,k) - Y.position(1:2));
-        if (distance < Y.nearestDist)
-            Y.nearestAgentVector = messages(1:2,k) - Y.position(1:2);
-            nearestAgent = messages(1:2,k);
-            Y.nearestDist = distance;
-        end
-    end
-end
-
-Y.headingToNearestAgent = bindAngleToFourQuadrant(...
-                          atan2(nearestAgent(1) - Y.position(1),...
-                                nearestAgent(2) - Y.position(2))...
-                          - Y.heading);
+% % calculate distance to nearest neighbouring agent
+% Y.nearestAgentVector = [inf;inf]; % vector from this agent to nearest one
+% nearestAgent = [inf;inf]; % estimated position of the nearest agent
+% Y.nearestDist = inf;
+% % loop through all agents
+% for k=1:size(messages,2)
+%     if k ~= agentNo % dont check this agent with itself
+%         distance = norm(messages(1:2,k) - Y.position(1:2));
+%         if (distance < Y.nearestDist)
+%             Y.nearestAgentVector = messages(1:2,k) - Y.position(1:2);
+%             nearestAgent = messages(1:2,k);
+%             Y.nearestDist = distance;
+%         end
+%     end
+% end
+% 
+% Y.headingToNearestAgent = bindAngleToFourQuadrant(...
+%                           atan2(nearestAgent(1) - Y.position(1),...
+%                                 nearestAgent(2) - Y.position(2))...
+%                           - Y.heading);
 
 
 
 end
 
 % -------------------------------------------------------------------------
-function [ U_new, memory, target] = simDecision( Y, U, memory, target, agentNo )
+function [ U_new, memory, target] = simDecision( Y, U, memory, target, messages, agentNo )
 %SIMDECISION returns new velocity commands based on current estimated
 %state and internal memory
 
 % updae agent's memory
 memory.lastPosition = Y.position;
 
-target = target;
+% find agent that is closest to this agent
+% calculate distance to nearest neighbouring agent
+nearestAgentVector = [inf;inf]; % vector from this agent to nearest one
+nearestAgent = [inf;inf]; % estimated position of the nearest agent
+nearestDist = inf;
+% loop through all agents
+for k=1:size(messages,2)
+    if k ~= agentNo % dont check this agent with itself
+        distance = norm(messages(1:2,k) - Y.position(1:2));
+        if (distance < nearestDist)
+            nearestAgentVector = messages(1:2,k) - Y.position(1:2);
+            nearestAgent = messages(1:2,k);
+            nearestDist = distance;
+        end
+    end
+end
+
+headingToNearestAgent = bindAngleToFourQuadrant(...
+                          atan2(nearestAgent(1) - Y.position(1),...
+                                nearestAgent(2) - Y.position(2))...
+                          - Y.heading);
+
+
+
+
+% target = target;
 % a finite state machine to decide what control inputs to be given
 switch memory.stateFSM
     case 1, % Move to specified target
@@ -158,7 +184,7 @@ switch memory.stateFSM
         v_new = 10 * ((pi/2 - abs(Y.headingToTarget))/(pi/2));
         mu_new =  (3*pi/180) * (Y.headingToTarget/(pi/2));
         
-        if Y.nearestDist < 50
+        if nearestDist < 50
             memory.stateFSM = 2;
         else
             if norm(Y.position) > 1000
@@ -172,10 +198,10 @@ switch memory.stateFSM
         end
         
     case 2, % if colliding, evade
-        v_new = 10 * ((pi/2 - abs(Y.headingToNearestAgent+pi/2))/(pi/2));
-        mu_new = (6*pi/180) * ((Y.headingToNearestAgent+pi/2)/(pi/2));
+        v_new = 10 * ((pi/2 - abs(headingToNearestAgent+pi/2))/(pi/2));
+        mu_new = (6*pi/180) * ((headingToNearestAgent+pi/2)/(pi/2));
         
-        if Y.nearestDist > 100
+        if nearestDist > 100
             memory.stateFSM = 1;
         end
         
@@ -184,7 +210,7 @@ switch memory.stateFSM
         mu_new = 6*pi/180;% *  memory.turnDirection;
         memory.turnDirection = memory.turnDirection * -1;
         
-        if Y.nearestDist < 150
+        if nearestDist < 150
             memory.stateFSM = 2;
         else
             if memory.pollution > 0.85 && memory.pollution < 1.15
@@ -198,7 +224,7 @@ switch memory.stateFSM
         v_new = 10 * ((pi/2 - abs(Y.headingToTarget - pi))/(pi/2));
         mu_new =  (3*pi/180) * (Y.headingToTarget - pi)/(pi/2);
         
-        if Y.nearestDist < 150
+        if nearestDist < 150
             memory.stateFSM = 2;
         else
             if norm(Y.position) > 1000
