@@ -23,10 +23,11 @@ dt = 2; % [s]
 nSteps = tMax / dt; % simulation steps
 
 %% initialize swarm parameters
-nRavens = 5; % number of UAVs
+nRavens = 2; % number of UAVs
 
 %% initialize true state and control input
 X = zeros(3,nRavens); % [m; m; rad]
+X = [-100,100;0,0;0,0];
 
 v = 10*ones(1,nRavens); % [m/s]
 mu = 0.1*ones(1,nRavens); % [rad/m]
@@ -36,7 +37,7 @@ U = [v; mu];
 for i = 1:1:nRavens
     memory(i).lastPosition = X(1:2,1);
     memory(i).stateFSM = 1;
-    target(:,i) = [500*cos(i*2*pi/nRavens);500*sin(i*2*pi/nRavens)];
+    target(:,i) = [-500*cos(i*2*pi/nRavens);500*sin(i*2*pi/nRavens)];
 end
 
 %% initialize communications
@@ -44,6 +45,11 @@ messagePool = initCommunication();
 
 %% target
 % target = repmat([500;0],1,nRavens);
+
+%% colors for pretty plotting
+colours = [0,0.4470,0.7410;
+           0.8500,0.3250,0.0980;
+           0.9290,0.6940,0.1250];
 
 %% main simulaiton loop
 for k = 1:nSteps
@@ -72,7 +78,8 @@ for k = 1:nSteps
         messagePool = broadcastMessage(messageToSend, messagePool);
 
         % drawing
-        plot(X(1,i),X(2,i),'o') % robot location
+        agentColour = colours(memory(i).stateFSM,:);
+        plot(X(1,i),X(2,i),'Color',agentColour,'Marker','o') % robot location
         plot(target(1,i), target(2,i), 'sg') % target
     end  
     
@@ -109,15 +116,15 @@ Y.headingToTarget = bindAngleToFourQuadrant(...
 % calculate distance to nearest neighbouring agent
 Y.nearestAgentVector = [inf;inf]; % vector from this agent to nearest one
 nearestAgent = [inf;inf]; % estimated position of the nearest agent
-nearestDist = inf;
+Y.nearestDist = inf;
 % loop through all agents
 for k=1:size(messages,2)
     if k ~= agentNo % dont check this agent with itself
         distance = norm(messages(1:2,k) - Y.position(1:2));
-        if (distance < nearestDist)
+        if (distance < Y.nearestDist)
             Y.nearestAgentVector = messages(1:2,k) - Y.position(1:2);
             nearestAgent = messages(1:2,k);
-            nearestDist = distance;
+            Y.nearestDist = distance;
         end
     end
 end
@@ -145,10 +152,18 @@ switch memory.stateFSM
         % update velocity command based on current heading to target
         v_new = 10 * ((pi/2 - abs(Y.headingToTarget))/(pi/2));
         mu_new =  (3*pi/180) * (Y.headingToTarget/(pi/2));
-    
+        
+        if Y.nearestDist < 150
+            memory.stateFSM = 2;
+        end
+        
     case 2, % if colliding, evade
-        v_new = 20;
-        mu_new = 1.5*pi/180;
+        v_new = 10 * ((pi/2 - abs(Y.headingToNearestAgent+pi/2))/(pi/2));
+        mu_new = (3*pi/180) * ((Y.headingToNearestAgent+pi/2)/(pi/2));
+        
+        if Y.nearestDist > 100
+            memory.stateFSM = 1;
+        end
 end
 
 [v_new, mu_new] = applyConstraints(v_new, mu_new);
