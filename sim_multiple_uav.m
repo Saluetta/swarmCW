@@ -35,8 +35,9 @@ U = [v; mu];
 
 %% initialize agent memory
 for i = 1:1:nRavens
-    memory(i).lastPosition = X(1:2,1);
+    memory(i).lastPosition = X(1:2,i);
     memory(i).stateFSM = 1;
+    memory(i).pollution = 0;
     target(:,i) = [-500*cos(i*2*pi/nRavens);500*sin(i*2*pi/nRavens)];
 end
 
@@ -65,13 +66,14 @@ for k = 1:nSteps
         Y(i) = simEstimateState(X(:,i), memory(i), target(:,i),receivedMessages, i);
 
         % agent makes a decision based on its estimated state, y
-        [U(:,i),memory(i)] = simDecision(Y(:,i), U(:,i), memory(i));
+        [U(:,i),memory(i), target(:,i)] = simDecision(Y(:,i), U(:,i), memory(i), target(:,i), i);
 
         % move uav
         X(:,i) = simMove(X(:,i),U(:,i),dt);
 
         % take measurement
         p(1,i) = cloudsamp(cloud,X(1,i),X(2,i),t);
+        memory(i).pollution = p(1,i);
 
         % add message to broadcast queue
         messageToSend = [X(1,i); X(2,i); p(1,i)];
@@ -139,13 +141,14 @@ Y.headingToNearestAgent = bindAngleToFourQuadrant(...
 end
 
 % -------------------------------------------------------------------------
-function [ U_new, memory ] = simDecision( Y, U, memory )
+function [ U_new, memory, target] = simDecision( Y, U, memory, target, agentNo )
 %SIMDECISION returns new velocity commands based on current estimated
 %state and internal memory
 
 % updae agent's memory
 memory.lastPosition = Y.position;
 
+target = target;
 % a finite state machine to decide what control inputs to be given
 switch memory.stateFSM
     case 1, % Move to specified target
@@ -155,6 +158,11 @@ switch memory.stateFSM
         
         if Y.nearestDist < 150
             memory.stateFSM = 2;
+        else
+            if memory.pollution > 0.85 && memory.pollution < 1.15
+                memory.stateFSM = 3;
+                target = Y.position;
+            end
         end
         
     case 2, % if colliding, evade
@@ -164,6 +172,23 @@ switch memory.stateFSM
         if Y.nearestDist > 100
             memory.stateFSM = 1;
         end
+        
+    case 3, % track contour
+        v_new = 10;
+        mu_new = 4*pi/180;
+        
+        
+        if Y.nearestDist < 150
+            memory.stateFSM = 2;
+        else
+            if memory.pollution > 0.85 && memory.pollution < 1.15
+                memory.stateFSM = 3;
+                target = Y.position;
+            else
+                memory.stateFSM = 1;
+            end
+        end
+        
 end
 
 [v_new, mu_new] = applyConstraints(v_new, mu_new);
