@@ -9,8 +9,8 @@ close all
 clc
 
 %% load cloud data
-load 'cloud1.mat'
-% load 'cloud2.mat'
+% load 'cloud1.mat'
+load 'cloud2.mat'
 
 %% initialize figure
 figure
@@ -19,7 +19,7 @@ hold on;
 %% define time and time step
 t = 0; % [s]
 tMax = 1800; % [s] 30 minutes
-dt = 2; % [s]
+dt = 5; % [s]
 nSteps = tMax / dt;
 
 %% initialize state and control input

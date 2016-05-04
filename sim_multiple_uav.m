@@ -9,8 +9,8 @@ close all
 clc
 
 %% load cloud data
-% load 'cloud1.mat'
-load 'cloud2.mat'
+load 'cloud1.mat'
+% load 'cloud2.mat'
 
 %% initialize figure
 figure('units','normalized','outerposition',[0 0 1 1])
@@ -23,7 +23,7 @@ dt = 2; % [s]
 nSteps = tMax / dt; % simulation steps
 
 %% initialize swarm parameters
-nRavens = 10; % number of UAVs
+nRavens = 8; % number of UAVs
 
 %% initialize true state and control input
 X = zeros(3,nRavens); % [m; m; rad]
@@ -40,7 +40,7 @@ for i = 1:1:nRavens
     memory(i).pollution = 0;
     memory(i).turnDirection = 1;
     
-    target(:,i) = [700*sin(i*2*pi/nRavens+pi/4);700*cos(i*2*pi/nRavens+pi/4)];
+    target(:,i) = [500*cos(i*2*pi/nRavens);500*sin(i*2*pi/nRavens)];
 %     target(:,i) = [500,10*i];
 end
 
@@ -181,23 +181,23 @@ headingToNearestAgent = bindAngleToFourQuadrant(...
 % ---- find position of cloud based on messages
 
 isSwarming = false;
-numberOfRavens = size(messages,2);
+isInCloud = false;
+
+numberOfRavens = size(messages,2); % indirectly find out the number of ravens
 if ~isempty(messages)
     agentsInCloud = find(messages(3,:) > 0.5); % get all agents in cloud
+    isInCloud = any(agentNo==agentsInCloud);
     if ~isempty(agentsInCloud)
         cloudLocation = messages(1:2,agentsInCloud(1,1)); % approximate
         
-        [idx] = knnsearch(messages(1:2,:)',cloudLocation', 'K', floor(numberOfRavens/2));
-        
-        % compute distances of all agents from this location
-%         distanceVectorsToCloud = bsxfun(@minus, cloudLocation, messages(1:2,:));
-%         distancesToCloud = sqrt(sum(distanceVectorsToCloud.^2,1));
+        [idx] = knnsearch(messages(1:2,:)',cloudLocation', 'K', ceil(numberOfRavens*0.75));
         
         % send this agent to cloud if it is among the N/2 closest agents and
         % is not already in the cloud
         if ~any(agentNo==agentsInCloud) && any(agentNo==idx)
-            vec = [-1;1];
-            target = messages(1:2,agentsInCloud(1,1)) + 20*vec(randi(2, 2, 1));
+%             vec = [-1;1];
+%             target = messages(1:2,agentsInCloud(1,1)) + 20*vec(randi(2, 2, 1));
+            target = messages(1:2,agentsInCloud(1,1)) + 100*[cos(agentNo*2*pi/numberOfRavens);sin(agentNo*2*pi/numberOfRavens)];
             isSwarming = true;
         end
     end
@@ -209,6 +209,7 @@ end
 shouldEvade = nearestDist < 50;
 isOutOfBounds = norm(Y.position) > 950;
 isPollutionInRange = memory.pollution > 0.9 && memory.pollution < 1.1;
+isCloseToTarget = sqrt((Y.position(1,1) - target(1,1))^2 + (Y.position(2,1) - target(2,1))^2) < 10;
 
 % target = target;
 % a finite state machine to decide what control inputs to be given
@@ -219,62 +220,63 @@ switch memory.stateFSM
         v_new = 10 * ((pi/2 - abs(Y.headingToTarget))/(pi/2));
         mu_new =  (3*pi/180) * (Y.headingToTarget/(pi/2));
         
-        if shouldEvade
+        if isOutOfBounds
+            target = getRandomCoordinate(); %[0;0];
+            memory.stateFSM = 1;
+        elseif shouldEvade
             memory.stateFSM = 2;
-        elseif isOutOfBounds
-            memory.stateFSM = 4;
         elseif isPollutionInRange
             memory.stateFSM = 3;
             target = Y.position;
-        elseif sqrt((Y.position(1,1) - target(1,1))^2 + (Y.position(2,1) - target(2,1))^2) < 1
-            memory.stateFSM = 5; %spiral
-            disp('m')
+            memory.turnDirection = memory.turnDirection * -1;
+        elseif isInCloud
+            memory.stateFSM = 3; % 3 or 4?
+        elseif isSwarming
+            memory.stateFSM = 1;
+            % changed target in swarming section
+        elseif isCloseToTarget
+            memory.stateFSM = 4; %spiral
         end
         
     case 2, % if colliding, evade
         v_new = 10 * ((pi/2 - abs(headingToNearestAgent+pi/2))/(pi/2));
         mu_new = (6*pi/180) * ((headingToNearestAgent+pi/2)/(pi/2));
         
-        if ~shouldEvade && t < 150
+        if isOutOfBounds
+            target = getRandomCoordinate(); %[0;0];
+            memory.stateFSM = 1;
+        elseif ~shouldEvade
             memory.stateFSM = 1;%1
-        elseif ~shouldEvade && t > 150
-            memory.stateFSM = 5;%1
         end
         
     case 3, % track contour - spin in a circle nearby
         v_new = 10;
-        mu_new = 6*pi/180;% *  memory.turnDirection;
-        memory.turnDirection = memory.turnDirection * -1;
+        mu_new = 6*pi/180 * memory.turnDirection;
         
-        if shouldEvade
+        if isOutOfBounds
+            target = getRandomCoordinate(); %[0;0];
+            memory.stateFSM = 1;
+        elseif shouldEvade
             memory.stateFSM = 2;
         elseif isPollutionInRange
             memory.stateFSM = 3;
             target = Y.position;
         else
-            memory.stateFSM = 5;%1
+            memory.stateFSM = 1;
         end
         
-    case 4, % reaching boundary, turn back TODO: refine this
-        v_new = 10 * ((pi/2 - abs(Y.headingToTarget))/(pi/2));
-        mu_new =  (3*pi/180) * (Y.headingToTarget)/(pi/2);
-        
-        if shouldEvade
-            memory.stateFSM = 2;
-        elseif ~isOutOfBounds
-            memory.stateFSM = 5;
-        end
-        
-    case 5, % exploring
+    case 4, % exploring
         v_new = 10;
         mu_new = 6*pi/180*exp(-0.01*t); % TODO: make this better
         
-        if shouldEvade
+        if isOutOfBounds
+            target = getRandomCoordinate(); %[0;0];
+            memory.stateFSM = 1;
+        elseif shouldEvade
             memory.stateFSM = 2;
-        elseif isOutOfBounds
-            memory.stateFSM = 4;
         elseif isSwarming
             memory.stateFSM = 1;
+            % target changed in swarming section
         elseif isPollutionInRange
             memory.stateFSM = 3;
         end
@@ -325,7 +327,7 @@ k3 = continuousDynamics(X+k2*dt/2,U);
 k4 = continuousDynamics(X+k3*dt,U);
 
 X_next = X + (k1 + 2*k2 + 2*k3 + k4)*dt/6;
-X_next(3,1) = mod(X_next(3,1), 2*pi);
+X_next(3,1) = bindAngleToFourQuadrant(X_next(3,1));
 
 end
 
@@ -380,5 +382,15 @@ function angle = bindAngleToFourQuadrant(angle)
         angle = angle - 2*pi;
     elseif angle < -pi
         angle = angle + 2*pi;
+    end
+end
+
+function [x,y] = getRandomCoordinate()
+% returns a valid, random integer coordinate
+    x = 1000*randn();
+    y = 1000*randn();
+    while norm([x;y]) > 1000
+        x = 1000*randn();
+        y = 1000*randn();
     end
 end
