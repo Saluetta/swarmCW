@@ -1,7 +1,6 @@
 function sim_multiple_uav
 % author: manaswi
-% description: simulation of multiple uavs moving to specified targets and
-% circling nearby
+% description: simulation of multiple uavs tracking a pollution cloud
 
 %% tabula rasa
 % clear all
@@ -9,12 +8,19 @@ close all
 clc
 
 %% load cloud data
-% load 'cloud1.mat'
-load 'cloud2.mat'
+load 'cloud1.mat'
+% load 'cloud2.mat'
 
 %% initialize figure
 figure('units','normalized','outerposition',[0 0 1 1])
 hold on;
+
+%% colors for pretty plotting
+colours = [0,0.4470,0.7410;
+           0.8500,0.3250,0.0980;
+           0.9290,0.6940,0.1250;
+           0.4940,0.1840,0.5560;
+           0.4660,0.6740,0.1880];
 
 %% define time and time step
 t = 0; % [s]
@@ -27,7 +33,6 @@ nRavens = 8; % number of UAVs
 
 %% initialize true state and control input
 X = zeros(3,nRavens); % [m; m; rad]
-% X = [-100,100;0,0;0,0];
 
 v = 10*ones(1,nRavens); % [m/s]
 mu = 0.1*ones(1,nRavens); % [rad/m]
@@ -40,22 +45,12 @@ for i = 1:1:nRavens
     memory(i).pollution = 0;
     memory(i).turnDirection = 1;
     
+    % initially, set targets on a circle of radius 500m
     target(:,i) = [500*cos(i*2*pi/nRavens);500*sin(i*2*pi/nRavens)];
-%     target(:,i) = [500,10*i];
 end
 
 %% initialize communications
 messagePool = initCommunication();
-
-%% target
-% target = repmat([500;0],1,nRavens);
-
-%% colors for pretty plotting
-colours = [0,0.4470,0.7410;
-           0.8500,0.3250,0.0980;
-           0.9290,0.6940,0.1250;
-           0.4940,0.1840,0.5560;
-           0.4660,0.6740,0.1880];
 
 %% main simulaiton loop
 for k = 1:nSteps
@@ -68,7 +63,7 @@ for k = 1:nSteps
         receivedMessages = receiveBroadcast(messagePool);
         
         % get estimate of current position from GPS
-        Y(i) = simEstimateState(X(:,i), memory(i), target(:,i),receivedMessages, i);
+        Y(i) = simEstimateState(X(:,i), memory(i), target(:,i));
 
         % agent makes a decision based on its estimated state, y
         [U(:,i),memory(i), target(:,i)] = simDecision(Y(:,i), U(:,i), memory(i), target(:,i), receivedMessages, i, dt, t);
@@ -88,11 +83,13 @@ for k = 1:nSteps
         agentColour = colours(memory(i).stateFSM,:);
         plot(X(1,i),X(2,i),'Color',agentColour,'Marker','o', 'MarkerSize',3) % robot location
         plot(target(1,i), target(2,i), 'sg') % target
+        title(sprintf('t=%.1f [s]',t)) 
     end  
     
     % simulate broadcast of messages
     messagePool = simulateBroadcast(messagePool);
     
+    % plot the cloud
     cloudplot(cloud,t)
     
     pause(0.01)
@@ -102,13 +99,12 @@ end % end of main
 
 %% Helper Functions -------------------------------------------------------
 % -------------------------------------------------------------------------
-function [ Y ] = simEstimateState( X, memory, target, messages, agentNo)
+function [ Y ] = simEstimateState( X, memory, target)
 %SIMESTIMATESTATE simulates estimateion of state based on GPS
 %   For the position, adds a gaussian noise of 3m
 %   for the heading, uses previous known position and computes arc tangent
 %   for heading to target, first find target orientation and then subtract
 %   agent's heading
-% [Note: heading is measued from North in clockwise direction]
 
 Y.position = X(1:2,1) + 3*randn(2,1);
 
@@ -119,32 +115,7 @@ Y.headingToTarget = bindAngleToFourQuadrant(...
                     atan2(target(1,1) - memory.lastPosition(1,1),...
                           target(2,1) - memory.lastPosition(2,1))...
                     - Y.heading);
-
-
-
-% % calculate distance to nearest neighbouring agent
-% Y.nearestAgentVector = [inf;inf]; % vector from this agent to nearest one
-% nearestAgent = [inf;inf]; % estimated position of the nearest agent
-% Y.nearestDist = inf;
-% % loop through all agents
-% for k=1:size(messages,2)
-%     if k ~= agentNo % dont check this agent with itself
-%         distance = norm(messages(1:2,k) - Y.position(1:2));
-%         if (distance < Y.nearestDist)
-%             Y.nearestAgentVector = messages(1:2,k) - Y.position(1:2);
-%             nearestAgent = messages(1:2,k);
-%             Y.nearestDist = distance;
-%         end
-%     end
-% end
-% 
-% Y.headingToNearestAgent = bindAngleToFourQuadrant(...
-%                           atan2(nearestAgent(1) - Y.position(1),...
-%                                 nearestAgent(2) - Y.position(2))...
-%                           - Y.heading);
-
-
-
+% [Note: heading is measued from North in clockwise direction]
 end
 
 % -------------------------------------------------------------------------
@@ -156,7 +127,6 @@ function [ U_new, memory, target] = simDecision( Y, U, memory, target, messages,
 memory.lastPosition = Y.position;
 
 % ---- find agent that is closest to this agent
-nearestAgentVector = [inf;inf]; % vector from this agent to nearest one
 nearestAgent = [inf;inf]; % estimated position of the nearest agent
 nearestDist = inf;
 
@@ -166,7 +136,6 @@ for k=1:size(messages,2)
         nextPosition = simMove([Y.position(1:2);Y.heading], U, dt);
         distance = norm(messages(1:2,k) - nextPosition(1:2,1));
         if (distance < nearestDist)
-            nearestAgentVector = messages(1:2,k) - nextPosition(1:2,1);
             nearestAgent = messages(1:2,k);
             nearestDist = distance;
         end
@@ -178,42 +147,41 @@ headingToNearestAgent = bindAngleToFourQuadrant(...
                                 nearestAgent(2) - Y.position(2))...
                           - Y.heading);
                       
-% ---- find position of cloud based on messages
+% ---- find position of cloud based on messages and send agents there
 
-isSwarming = false;
-isInCloud = false;
+isSwarming = false; % flag that indicates if agent must move to cloud
+isInCloud = false; % flag that indicates if agent is in cloud
 
-numberOfRavens = size(messages,2); % indirectly find out the number of ravens
+numberOfRavens = size(messages,2); % indirectly determine number of ravens
 if ~isempty(messages)
     agentsInCloud = find(messages(3,:) > 0.5); % get all agents in cloud
     isInCloud = any(agentNo==agentsInCloud);
     if ~isempty(agentsInCloud)
-        cloudLocation = messages(1:2,agentsInCloud(1,1)); % approximate
+        % get approximate cloud position from one of the agents inside it
+        cloudLocation = messages(1:2,agentsInCloud(1,1));
         
+        % find 3/4th of all agents that are closest to the cloud
+        % K can also be based on time!
         [idx] = knnsearch(messages(1:2,:)',cloudLocation', 'K', ceil(numberOfRavens*0.75));
         
-        % send this agent to cloud if it is among the N/2 closest agents and
+        % send this agent to cloud if it is among the closest agents and
         % is not already in the cloud
         if ~any(agentNo==agentsInCloud) && any(agentNo==idx)
-%             vec = [-1;1];
-%             target = messages(1:2,agentsInCloud(1,1)) + 20*vec(randi(2, 2, 1));
+            % generate targets in a circle around known position
             target = messages(1:2,agentsInCloud(1,1)) + 50*[cos(agentNo*2*pi/numberOfRavens);sin(agentNo*2*pi/numberOfRavens)];
             isSwarming = true;
         end
     end
 end
 
-
-% ---- flags that are used in the state machine
+% ---- other flags that are used in the state machine
 % definine them here so that I can avoid long conditionals
-shouldEvade = nearestDist < 50;
-isOutOfBounds = norm(Y.position) > 950;
-isPollutionInRange = memory.pollution > 0.9 && memory.pollution < 1.1;
+shouldEvade = nearestDist < 50; % based on collission avoidance criterion
+isOutOfBounds = norm(Y.position) > 950; % agents may not move beyond 1000m
+isPollutionInRange = memory.pollution > 0.9 && memory.pollution < 1.1; % slightly relaxed constraints
 isCloseToTarget = sqrt((Y.position(1,1) - target(1,1))^2 + (Y.position(2,1) - target(2,1))^2) < 10;
 
-% target = target;
 % a finite state machine to decide what control inputs to be given
-% TODO: re think state machine
 switch memory.stateFSM
     case 1, % Move to specified target
         % update velocity command based on current heading to target
@@ -221,16 +189,17 @@ switch memory.stateFSM
         mu_new =  (3*pi/180) * (Y.headingToTarget/(pi/2));
         
         if isOutOfBounds
-            target = getRandomCoordinate(); %[0;0];
+            target = getRandomCoordinate(); % could also use [0;0];
             memory.stateFSM = 1;
         elseif shouldEvade
             memory.stateFSM = 2;
         elseif isPollutionInRange
             memory.stateFSM = 3;
             target = Y.position;
-            memory.turnDirection = memory.turnDirection * -1;
+            %memory.turnDirection = memory.turnDirection * -1;
         elseif isInCloud
-            memory.stateFSM = 3; % 3 or 4?
+            % no change in target
+            memory.stateFSM = 3; % 3 is better than 4
         elseif isSwarming
             memory.stateFSM = 1;
             % changed target in swarming section
@@ -243,10 +212,10 @@ switch memory.stateFSM
         mu_new = (6*pi/180) * ((headingToNearestAgent+pi/2)/(pi/2));
         
         if isOutOfBounds
-            target = getRandomCoordinate(); %[0;0];
+            target = getRandomCoordinate(); % could also use [0;0];
             memory.stateFSM = 1;
         elseif ~shouldEvade
-            memory.stateFSM = 1;%1
+            memory.stateFSM = 1;
         end
         
     case 3, % track contour - spin in a circle nearby
@@ -254,7 +223,7 @@ switch memory.stateFSM
         mu_new = 6*pi/180;% * memory.turnDirection;
         
         if isOutOfBounds
-            target = getRandomCoordinate(); %[0;0];
+            target = getRandomCoordinate(); % could also use [0;0];
             memory.stateFSM = 1;
         elseif shouldEvade
             memory.stateFSM = 2;
@@ -265,12 +234,12 @@ switch memory.stateFSM
             memory.stateFSM = 1;
         end
         
-    case 4, % exploring
+    case 4, % exploring - exponentially growing spiral
         v_new = 10;
-        mu_new = 6*pi/180*exp(-0.01*t); % TODO: make this better
+        mu_new = 6*pi/180*exp(-0.01*t); % works fine even for large t
         
         if isOutOfBounds
-            target = getRandomCoordinate(); %[0;0];
+            target = getRandomCoordinate(); % could also use [0;0];
             memory.stateFSM = 1;
         elseif shouldEvade
             memory.stateFSM = 2;
@@ -279,16 +248,17 @@ switch memory.stateFSM
             % target changed in swarming section
         elseif isPollutionInRange
             memory.stateFSM = 3;
+            target = Y.position;
         end
 end
 
+% apply constraints on v and mu
 [v_new, mu_new] = applyConstraints(v_new, mu_new);
 U_new = [v_new; mu_new];
 
 end
 
 function [v_new, mu_new] = applyConstraints(v_new,mu_new)
-
 % apply limits on v
 if v_new > 20
     v_new = 20;
@@ -307,17 +277,11 @@ if mu_new < -6*pi/180
     mu_new = -6*pi/180;
 end
 
-
-% TODO: check this
-% if mu_new < 0
-%     mu_new = 0;
-% end
-
 end
 
 % -------------------------------------------------------------------------
 function [ X_next ] = simMove( X, U, dt )
-%simMove given current state, control input and time step, this function
+%SIMMOVE given current state, control input and time step, this function
 %returns the state at the next instant of time
 %   Implements a simple 4th order Runge Kutta prediction
 
@@ -386,7 +350,7 @@ function angle = bindAngleToFourQuadrant(angle)
 end
 
 function [x,y] = getRandomCoordinate()
-% returns a valid, random integer coordinate
+% returns a valid, random coordinate closer than 1000m from origin
     x = 1000*randn();
     y = 1000*randn();
     while norm([x;y]) > 1000
