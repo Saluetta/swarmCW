@@ -1,1 +1,11 @@
 *.asv
+report.out
+report.pdf
+report.tex
+report.synctex.gz
+report.aux
+avoidance.png
+Presentation1.pptx
+report.log
+*.png
+*.pptx
