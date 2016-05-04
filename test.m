@@ -10,7 +10,7 @@ dt = 2;
 
 for i = 1:1000
     v = v;% + 0.05;
-    mu = (2 + X(3,1)^2 ) / (0.5*(1 + X(3,1)^2)^1.5);
+    mu = 6*pi/180;%(2 + X(3,1)^2 ) / (0.5*(1 + X(3,1)^2)^1.5);
     
     if mu < 0
         mu = 0;
@@ -32,9 +32,9 @@ for i = 1:1000
 end
 
 plot(store(1,:), store(2,:), 'b')
-plot(mod(store(3,:),2*pi), 'b')
-hold on
-plot(store(1,end), store(2,end), 'r*')
+% plot(mod(store(3,:),2*pi), 'b')
+% hold on
+% plot(store(1,end), store(2,end), 'r*')
 
 end
 

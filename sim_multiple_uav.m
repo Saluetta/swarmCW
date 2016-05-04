@@ -9,8 +9,8 @@ close all
 clc
 
 %% load cloud data
-load 'cloud1.mat'
-% load 'cloud2.mat'
+% load 'cloud1.mat'
+load 'cloud2.mat'
 
 %% initialize figure
 figure('units','normalized','outerposition',[0 0 1 1])
@@ -95,7 +95,7 @@ for k = 1:nSteps
     
     cloudplot(cloud,t)
     
-    pause(0.1)
+    pause(0.01)
 end
 
 end % end of main
@@ -197,7 +197,7 @@ if ~isempty(messages)
         if ~any(agentNo==agentsInCloud) && any(agentNo==idx)
 %             vec = [-1;1];
 %             target = messages(1:2,agentsInCloud(1,1)) + 20*vec(randi(2, 2, 1));
-            target = messages(1:2,agentsInCloud(1,1)) + 100*[cos(agentNo*2*pi/numberOfRavens);sin(agentNo*2*pi/numberOfRavens)];
+            target = messages(1:2,agentsInCloud(1,1)) + 50*[cos(agentNo*2*pi/numberOfRavens);sin(agentNo*2*pi/numberOfRavens)];
             isSwarming = true;
         end
     end
@@ -251,7 +251,7 @@ switch memory.stateFSM
         
     case 3, % track contour - spin in a circle nearby
         v_new = 10;
-        mu_new = 6*pi/180 * memory.turnDirection;
+        mu_new = 6*pi/180;% * memory.turnDirection;
         
         if isOutOfBounds
             target = getRandomCoordinate(); %[0;0];
