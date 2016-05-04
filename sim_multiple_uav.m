@@ -9,8 +9,8 @@ close all
 clc
 
 %% load cloud data
-load 'cloud1.mat'
-% load 'cloud2.mat'
+% load 'cloud1.mat'
+load 'cloud2.mat'
 
 %% initialize figure
 figure('units','normalized','outerposition',[0 0 1 1])
@@ -23,7 +23,7 @@ dt = 2; % [s]
 nSteps = tMax / dt; % simulation steps
 
 %% initialize swarm parameters
-nRavens = 7; % number of UAVs
+nRavens = 10; % number of UAVs
 
 %% initialize true state and control input
 X = zeros(3,nRavens); % [m; m; rad]
@@ -53,7 +53,9 @@ messagePool = initCommunication();
 %% colors for pretty plotting
 colours = [0,0.4470,0.7410;
            0.8500,0.3250,0.0980;
-           0.9290,0.6940,0.1250];
+           0.9290,0.6940,0.1250;
+           0.4940,0.1840,0.5560;
+           0.4660,0.6740,0.1880];
 
 %% main simulaiton loop
 for k = 1:nSteps
@@ -69,7 +71,7 @@ for k = 1:nSteps
         Y(i) = simEstimateState(X(:,i), memory(i), target(:,i),receivedMessages, i);
 
         % agent makes a decision based on its estimated state, y
-        [U(:,i),memory(i), target(:,i)] = simDecision(Y(:,i), U(:,i), memory(i), target(:,i), receivedMessages, i, dt);
+        [U(:,i),memory(i), target(:,i)] = simDecision(Y(:,i), U(:,i), memory(i), target(:,i), receivedMessages, i, dt, t);
 
         % move uav
         X(:,i) = simMove(X(:,i),U(:,i),dt);
@@ -117,7 +119,9 @@ Y.headingToTarget = bindAngleToFourQuadrant(...
                     atan2(target(1,1) - memory.lastPosition(1,1),...
                           target(2,1) - memory.lastPosition(2,1))...
                     - Y.heading);
-                
+
+
+
 % % calculate distance to nearest neighbouring agent
 % Y.nearestAgentVector = [inf;inf]; % vector from this agent to nearest one
 % nearestAgent = [inf;inf]; % estimated position of the nearest agent
@@ -144,7 +148,7 @@ Y.headingToTarget = bindAngleToFourQuadrant(...
 end
 
 % -------------------------------------------------------------------------
-function [ U_new, memory, target] = simDecision( Y, U, memory, target, messages, agentNo, dt )
+function [ U_new, memory, target] = simDecision( Y, U, memory, target, messages, agentNo, dt, t )
 %SIMDECISION returns new velocity commands based on current estimated
 %state and internal memory
 
@@ -175,6 +179,8 @@ headingToNearestAgent = bindAngleToFourQuadrant(...
                           - Y.heading);
                       
 % ---- find position of cloud based on messages
+
+isSwarming = false;
 numberOfRavens = size(messages,2);
 if ~isempty(messages)
     agentsInCloud = find(messages(3,:) > 0.5); % get all agents in cloud
@@ -192,28 +198,21 @@ if ~isempty(messages)
         if ~any(agentNo==agentsInCloud) && any(agentNo==idx)
             vec = [-1;1];
             target = messages(1:2,agentsInCloud(1,1)) + 20*vec(randi(2, 2, 1));
+            isSwarming = true;
         end
     end
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
 end
 
 
 % ---- flags that are used in the state machine
-% definine them here so that I can avoid long nested if-else statements
+% definine them here so that I can avoid long conditionals
 shouldEvade = nearestDist < 50;
-isPollutionInRange = memory.pollution > 0.85 && memory.pollution < 1.15;
+isOutOfBounds = norm(Y.position) > 950;
+isPollutionInRange = memory.pollution > 0.9 && memory.pollution < 1.1;
 
 % target = target;
 % a finite state machine to decide what control inputs to be given
+% TODO: re think state machine
 switch memory.stateFSM
     case 1, % Move to specified target
         % update velocity command based on current heading to target
@@ -222,23 +221,24 @@ switch memory.stateFSM
         
         if shouldEvade
             memory.stateFSM = 2;
-        else
-            if norm(Y.position) > 1000
-                memory.stateFSM = 4;
-            else
-                if isPollutionInRange
-                    memory.stateFSM = 3;
-                    target = Y.position;
-                end
-            end
+        elseif isOutOfBounds
+            memory.stateFSM = 4;
+        elseif isPollutionInRange
+            memory.stateFSM = 3;
+            target = Y.position;
+        elseif sqrt((Y.position(1,1) - target(1,1))^2 + (Y.position(2,1) - target(2,1))^2) < 1
+            memory.stateFSM = 5; %spiral
+            disp('m')
         end
         
     case 2, % if colliding, evade
         v_new = 10 * ((pi/2 - abs(headingToNearestAgent+pi/2))/(pi/2));
         mu_new = (6*pi/180) * ((headingToNearestAgent+pi/2)/(pi/2));
         
-        if ~shouldEvade
-            memory.stateFSM = 1;
+        if ~shouldEvade && t < 150
+            memory.stateFSM = 1;%1
+        elseif ~shouldEvade && t > 150
+            memory.stateFSM = 5;%1
         end
         
     case 3, % track contour - spin in a circle nearby
@@ -248,24 +248,35 @@ switch memory.stateFSM
         
         if shouldEvade
             memory.stateFSM = 2;
+        elseif isPollutionInRange
+            memory.stateFSM = 3;
+            target = Y.position;
         else
-            if isPollutionInRange
-                memory.stateFSM = 3;
-                target = Y.position;
-            else
-                memory.stateFSM = 1;
-            end
+            memory.stateFSM = 5;%1
         end
-    case 4, % reaching boundary, turn back
-        v_new = 10 * ((pi/2 - abs(Y.headingToTarget - pi))/(pi/2));
-        mu_new =  (3*pi/180) * (Y.headingToTarget - pi)/(pi/2);
+        
+    case 4, % reaching boundary, turn back TODO: refine this
+        v_new = 10 * ((pi/2 - abs(Y.headingToTarget))/(pi/2));
+        mu_new =  (3*pi/180) * (Y.headingToTarget)/(pi/2);
         
         if shouldEvade
             memory.stateFSM = 2;
-        else
-            if norm(Y.position) > 1000
-               memory.stateFSM = 1; 
-            end
+        elseif ~isOutOfBounds
+            memory.stateFSM = 5;
+        end
+        
+    case 5, % exploring
+        v_new = 10;
+        mu_new = 6*pi/180*exp(-0.01*t); % TODO: make this better
+        
+        if shouldEvade
+            memory.stateFSM = 2;
+        elseif isOutOfBounds
+            memory.stateFSM = 4;
+        elseif isSwarming
+            memory.stateFSM = 1;
+        elseif isPollutionInRange
+            memory.stateFSM = 3;
         end
 end
 
@@ -289,6 +300,11 @@ end
 if mu_new > 6*pi/180
     mu_new = 6*pi/180;
 end
+
+if mu_new < -6*pi/180
+    mu_new = -6*pi/180;
+end
+
 
 % TODO: check this
 % if mu_new < 0

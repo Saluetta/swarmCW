@@ -32,7 +32,7 @@ U = [v; mu];
 %% initialize agent memory
 memory.lastPosition = X(1:2,1);
 % memory.velocityCommands = U;
-memory.stateFSM = 1;
+memory.stateFSM = 3;
 
 %% target
 target = [0;-500];
@@ -46,10 +46,11 @@ for k = 1:nSteps
     Y = simEstimateState(X, memory, target);
     
     % agent makes a decision based on its estimated state, y
-    [U,memory] = simDecision(Y, U, memory);
+    [U,memory] = simDecision(Y, U, memory, t);
     
     % move uav
     X = simMove(X,U,dt);
+    store(:,k) = X(1:2,1);
     
     % take measurement
     p = cloudsamp(cloud,X(1,1),X(2,1),t);
@@ -65,7 +66,7 @@ for k = 1:nSteps
     title(sprintf('t=%.1f secs pos=(%.1f, %.1f)  Concentration=%.2f',t, X(1,1),X(2,1),p)) 
     plot(X(1,1),X(2,1),'o') % robot location
     plot(target(1,1), target(2,1), 'sg') % target
-    
+    plot(store(1,:), store(2,:))
     cloudplot(cloud,t)
     
     pause(0.1)
@@ -91,13 +92,13 @@ Y.headingToTarget = bindAngleToFourQuadrant(...
                     atan2(target(1,1) - memory.lastPosition(1,1),...
                           target(2,1) - memory.lastPosition(2,1))...
                     - Y.heading);
-                
+Y.monkey = atan2(Y.position(2,1), Y.position(1,1));
 
 % [Note: heading is measued from North in clockwise direction]
 end
 
 % -------------------------------------------------------------------------
-function [ U_new, memory ] = simDecision( Y, U, memory )
+function [ U_new, memory ] = simDecision( Y, U, memory , t)
 %SIMDECISION returns new velocity commands based on current estimated
 %state and internal memory
 
@@ -115,6 +116,10 @@ switch memory.stateFSM
     case 2, % If reached target, circle nearby
         v_new = 20;
         mu_new = 2*pi/180;
+        
+    case 3,
+        v_new = 10;
+        mu_new = 6*pi/180*exp(-0.01*t);
 end
 
 % apply limits on v

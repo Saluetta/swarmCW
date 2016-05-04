@@ -1,4 +1,6 @@
-x = linspace(-pi, pi, 100);
-y = ((pi/2 - abs(x))/(pi/2));
+t = 0:2:1800;
+mu = 6*pi/180*exp(-0.001*t);
 
-plot(x,y)
+mu(mu>6*pi/180) = 6*pi/180;
+    
+plot(t,mu)
