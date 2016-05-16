@@ -8,8 +8,25 @@ close all
 clc
 
 %% load cloud data
-load 'cloud1.mat'
-% load 'cloud2.mat'
+% load 'cloud1.mat'
+load 'cloud2.mat'
+
+% % clpts = [];
+% % % % cloud area appriximated
+% % for xs = 0:40:1000
+% %     for ys = 0:40:1000
+% %         ps = cloudsamp(cloud,xs,ys,1800);
+% %         if ps > 0.95 && ps < 1.05
+% %             clpts = [clpts [xs;ys]];
+% %         end
+% %     end
+% % end
+% % cloudplot(cloud,1800)
+% % hold on
+% % plot(clpts(1,:), clpts(2,:),'r*')
+% % clpts = getCloudContours(clpts);
+% % 
+% % clArea = polyarea(clpts(1,:), clpts(2,:));
 
 %% initialize figure
 figure('units','normalized','outerposition',[0 0 1 1])
@@ -21,7 +38,7 @@ colours = [0,0.4470,0.7410;
            0.9290,0.6940,0.1250;
            0.4940,0.1840,0.5560;
            0.4660,0.6740,0.1880];
-
+for runs = 1:10
 %% define time and time step
 t = 0; % [s]
 tMax = 1800; % [s] 30 minutes
@@ -44,13 +61,21 @@ for i = 1:1:nRavens
     memory(i).stateFSM = 1;
     memory(i).pollution = 0;
     memory(i).turnDirection = 1;
-    
+    memory(i).numberOfCollisions = 0;
     % initially, set targets on a circle of radius 500m
     target(:,i) = [500*cos(i*2*pi/nRavens);500*sin(i*2*pi/nRavens)];
 end
 
 %% initialize communications
 messagePool = initCommunication();
+
+
+
+
+totalCollisions = 0;
+
+areaPts = [];
+
 
 %% main simulaiton loop
 for k = 1:nSteps
@@ -59,7 +84,7 @@ for k = 1:nSteps
     cla
     
     for i = 1:1:nRavens
-        % receive broadcasted messages
+        % receive broadcasted messag    es
         receivedMessages = receiveBroadcast(messagePool);
         
         % get estimate of current position from GPS
@@ -70,6 +95,7 @@ for k = 1:nSteps
 
         % move uav
         X(:,i) = simMove(X(:,i),U(:,i),dt);
+        store{i}(1:2,k) = [X(1,i),X(2,i)];
 
         % take measurement
         p(1,i) = cloudsamp(cloud,X(1,i),X(2,i),t);
@@ -81,18 +107,63 @@ for k = 1:nSteps
 
         % drawing
         agentColour = colours(memory(i).stateFSM,:);
-        plot(X(1,i),X(2,i),'Color',agentColour,'Marker','o', 'MarkerSize',3) % robot location
-        plot(target(1,i), target(2,i), 'sg') % target
-        title(sprintf('t=%.1f [s]',t)) 
-    end  
+%         plot(X(1,i),X(2,i),'Color',agentColour,'Marker','o', 'MarkerSize',3) % robot location
+%         plot(target(1,i), target(2,i), 'sg') % target
+%         title(sprintf('t=%.1f [s]',t)) 
+    end 
     
+    
+
+    for j = 1:nRavens
+        %plot(store{j}(1,:), store{j}(2,:), 'k') % target
+        axis equal
+        axis([min(cloud.x) max(cloud.x) min(cloud.y) max(cloud.y)])
+        
+        totalCollisions = totalCollisions + memory(j).numberOfCollisions;
+        
+        
+        
+            
+        
+    end
     % simulate broadcast of messages
     messagePool = simulateBroadcast(messagePool);
     
     % plot the cloud
-    cloudplot(cloud,t)
+%     cloudplot(cloud,t)
     
     pause(0.01)
+end
+
+disp('run number')
+disp(runs)
+disp('collissions')
+disp(totalCollisions/2);
+collisionCount(runs) = totalCollisions/2;
+
+for j = 1:nRavens
+   if memory(j).pollution > 0.85 && memory(j).pollution < 1.15 
+    areaPts = [areaPts X(1:2,j)];
+   end 
+end
+
+
+% clArea = 5676000;
+clArea = 3628800;
+
+% final area / cloud area
+areaPts = getCloudContours(areaPts);
+area = polyarea(areaPts(1,:), areaPts(2,:));
+
+cover(runs) = area/clArea;
+agentsInsideCLoud(runs) = size(areaPts,2);
+
+disp('area cover')
+disp(cover(runs))
+disp('agents in cloud')
+disp(size(areaPts,2))
+
+
 end
 
 end % end of main
@@ -130,6 +201,7 @@ memory.lastPosition = Y.position;
 nearestAgent = [inf;inf]; % estimated position of the nearest agent
 nearestDist = inf;
 
+
 % loop through all agents
 for k=1:size(messages,2)
     if k ~= agentNo % dont check this agent with itself
@@ -141,6 +213,11 @@ for k=1:size(messages,2)
         end
     end
 end
+
+if(nearestDist < 2)
+memory.numberOfCollisions = memory.numberOfCollisions + 1;
+end
+
 
 headingToNearestAgent = bindAngleToFourQuadrant(...
                           atan2(nearestAgent(1) - Y.position(1),...
@@ -357,4 +434,20 @@ function [x,y] = getRandomCoordinate()
         x = 1000*randn();
         y = 1000*randn();
     end
+end
+
+function [Points]=getCloudContours(Points)
+
+if size(Points,2)>10
+    contourPoints = [];
+    %for i = 1:size(navMemory.cloudLocation,2)
+    index = convhull(Points(1,:),Points(2,:));
+    for i = 1:size(index)
+        contourPoints = [contourPoints [Points(1,index);Points(2,index)]];
+    end
+    %contourPoints;
+    %[~,index] = max(contourPoints);
+    %target = [navMemory.cloudLocation(1,index);navMemory.cloudLocation(2,index)];
+    Points = contourPoints;
+end
 end
